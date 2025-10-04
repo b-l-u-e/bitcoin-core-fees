@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api, type FeeEstimate } from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface MempoolForecastData {
   forecast: {
     feeRate: number; // in s/vb
-    confidence: number; // percentage
+    mode: string; // "economical" or "conservative"
   };
   blockWeights: {
     target: number; // KWU
@@ -38,7 +38,7 @@ export default function MempoolForecastDashboard() {
         setData({
           forecast: {
             feeRate: feeEstimate.feerate * 100000000, // Convert to s/vb
-            confidence: 100,
+            mode: "economical",
           },
           blockWeights: mockBlockWeights,
         });
@@ -48,7 +48,7 @@ export default function MempoolForecastDashboard() {
         setData({
           forecast: {
             feeRate: 5,
-            confidence: 100,
+            mode: "economical",
           },
           blockWeights: [
             { target: 3.8, current: 3.8, utilization: 100 },
@@ -81,29 +81,37 @@ export default function MempoolForecastDashboard() {
 
   return (
     <div className="w-full max-w-6xl mx-auto p-6">
-      
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Block 1: 100 Forecast by Mempool Forecaster */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <h3
+            className="text-lg font-semibold text-gray-700 dark:text-gray-300"
+            title="Fee estimation for 100 blocks ahead using mempool analysis"
+          >
             100 Forecast by Mempool Forecaster
           </h3>
 
           <div className="relative">
             {/* Main forecast block */}
-            <div className="bg-gradient-to-br from-red-700 to-red-800 rounded-lg p-6 text-white shadow-lg">
+            <div className="bg-gradient-to-br from-orange-600 to-amber-600 rounded-lg p-6 text-white shadow-lg">
               <div className="text-center space-y-2">
-                <div className="text-2xl font-bold">
-                  {data?.forecast.feeRate.toFixed(1)} s/vb
+                <div className="text-3xl font-bold transition-all duration-500 ease-out">
+                  {data?.forecast.feeRate.toFixed(1)}
                 </div>
-                <div className="text-lg opacity-90">
-                  {data?.forecast.feeRate.toFixed(1)} s/vb
+                <div className="text-lg font-semibold opacity-90">sat/vB</div>
+                <div className="text-sm opacity-75">
+                  {data?.forecast.mode === "economical"
+                    ? "Economical"
+                    : "Conservative"}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="text-xs text-gray-500 dark:text-gray-400">
+          <div
+            className="text-xs text-gray-500 dark:text-gray-400"
+            title="Minimum fee rate required for transaction relay"
+          >
             Minimum Relay Fee Rate - 1 s/vb
           </div>
         </div>
@@ -111,7 +119,14 @@ export default function MempoolForecastDashboard() {
         {/* Blocks 2-4: KWU Visualizations */}
         {data?.blockWeights.map((block, index) => (
           <div key={index} className="space-y-3">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <h3
+              className="text-lg font-semibold text-gray-700 dark:text-gray-300"
+              title={
+                index === 0
+                  ? "Current block being mined"
+                  : `Block ${100 - index} in the future`
+              }
+            >
               {index === 0 ? "Current" : `${100 - index}`}
             </h3>
 
@@ -120,7 +135,7 @@ export default function MempoolForecastDashboard() {
               <div className="absolute inset-0 bg-gray-800 rounded-lg transform translate-x-1 translate-y-1"></div>
 
               {/* Foreground block (current usage) */}
-              <div className="relative bg-gradient-to-br from-red-700 to-red-800 rounded-lg p-4 text-white shadow-lg">
+              <div className="relative bg-gradient-to-br from-orange-600 to-amber-600 rounded-lg p-4 text-white shadow-lg">
                 {/* Liquid fill effect */}
                 <div
                   className="absolute top-0 left-0 right-0 bg-gradient-to-r from-gray-200 to-gray-300 rounded-t-lg transition-all duration-1000"
@@ -131,10 +146,13 @@ export default function MempoolForecastDashboard() {
                 ></div>
 
                 <div className="relative z-10 text-center">
-                  <div className="text-sm opacity-75 mb-1">
+                  <div
+                    className="text-sm opacity-75 mb-1"
+                    title="Target weight capacity for this block"
+                  >
                     {block.target.toFixed(1)} KWU
                   </div>
-                  <div className="text-lg font-bold">
+                  <div className="text-lg font-bold transition-all duration-500 ease-out">
                     {block.current.toFixed(1)} KWU
                   </div>
                 </div>
@@ -144,40 +162,47 @@ export default function MempoolForecastDashboard() {
         ))}
       </div>
 
-     
       <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow border border-gray-200 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">
+          <div
+            className="text-base text-gray-600 dark:text-gray-400"
+            title="Number of unconfirmed transactions waiting in the mempool"
+          >
             Mempool Size
           </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
+          <div className="text-2xl font-bold text-gray-900 dark:text-white transition-all duration-500 ease-out">
             103,733
           </div>
           <div className="text-xs text-gray-500">transactions</div>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow border border-gray-200 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">
+          <div
+            className="text-base text-gray-600 dark:text-gray-400"
+            title="Total fees from all transactions in the mempool"
+          >
             Total Fees
           </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
+          <div className="text-2xl font-bold text-gray-900 dark:text-white transition-all duration-500 ease-out">
             0.1086
           </div>
           <div className="text-xs text-gray-500">BTC</div>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow border border-gray-200 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">
+          <div
+            className="text-base text-gray-600 dark:text-gray-400"
+            title="Percentage of maximum mempool capacity currently used"
+          >
             Mempool Usage
           </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
+          <div className="text-2xl font-bold text-gray-900 dark:text-white transition-all duration-500 ease-out">
             83.6%
           </div>
           <div className="text-xs text-gray-500">of max capacity</div>
         </div>
       </div>
 
-      
       <div className="mt-6 flex items-center justify-center space-x-2 text-sm text-gray-500">
         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
         <span>Live data • Updates every 30 seconds</span>

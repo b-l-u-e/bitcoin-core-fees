@@ -25,6 +25,37 @@ export default function BlockTemplateVisualization({
         setError(
           err instanceof Error ? err.message : "Failed to fetch block stats"
         );
+        // Set fallback data to prevent crashes
+        setBlockStats({
+          height: blockHeight,
+          time: Math.floor(Date.now() / 1000),
+          avgfee: 1000,
+          avgfeerate: 0.00001,
+          avgtxsize: 250,
+          blockhash:
+            "0000000000000000000000000000000000000000000000000000000000000000",
+          feerate_percentiles: [0.00001, 0.00002, 0.00005, 0.0001, 0.0002],
+          ins: 100,
+          maxfee: 5000,
+          maxfeerate: 0.0001,
+          maxtxsize: 1000,
+          medianfee: 1500,
+          mediantime: Math.floor(Date.now() / 1000),
+          mediantxsize: 300,
+          minfee: 100,
+          minfeerate: 0.000001,
+          mintxsize: 100,
+          outs: 120,
+          subsidy: 625000000,
+          swtotal_size: 100000,
+          swtotal_weight: 400000,
+          swtxs: 50,
+          total_out: 1000000000,
+          total_size: 1000000,
+          total_weight: 4000000,
+          totalfee: 1000000,
+          txs: 200,
+        });
       } finally {
         setLoading(false);
       }
@@ -79,39 +110,51 @@ export default function BlockTemplateVisualization({
     <div className="space-y-6">
       {/* Block Header */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+        <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
           Block Template Analysis
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+            <div className="text-2xl font-bold text-orange-600 dark:text-orange-400 transition-all duration-500 ease-out">
               #{blockStats.height}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
+            <div
+              className="text-sm text-gray-600 dark:text-gray-400"
+              title="The current block number in the Bitcoin blockchain"
+            >
               Block Height
             </div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 transition-all duration-500 ease-out">
               {blockStats.txs}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
+            <div
+              className="text-sm text-gray-600 dark:text-gray-400"
+              title="Number of transactions included in this block"
+            >
               Transactions
             </div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <div className="text-2xl font-bold text-green-600 dark:text-green-400 transition-all duration-500 ease-out">
               {formatBytes(blockStats.total_size)}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
+            <div
+              className="text-sm text-gray-600 dark:text-gray-400"
+              title="Total size of all transactions in this block"
+            >
               Total Size
             </div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+            <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 transition-all duration-500 ease-out">
               {formatBytes(blockStats.total_weight)}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
+            <div
+              className="text-sm text-gray-600 dark:text-gray-400"
+              title="Total weight units (WU) of all transactions in this block"
+            >
               Total Weight
             </div>
           </div>
@@ -120,7 +163,7 @@ export default function BlockTemplateVisualization({
 
       {/* Fee Rate Distribution */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
-        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+        <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
           Fee Rate Distribution (Percentiles)
         </h3>
 
@@ -129,11 +172,11 @@ export default function BlockTemplateVisualization({
           <div className="relative h-8 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden">
             {/* Percentile markers */}
             <div className="absolute inset-0 flex">
-              <div className="flex-1 bg-gradient-to-r from-red-400 to-yellow-400"></div>
-              <div className="flex-1 bg-gradient-to-r from-yellow-400 to-green-400"></div>
-              <div className="flex-1 bg-gradient-to-r from-green-400 to-blue-400"></div>
-              <div className="flex-1 bg-gradient-to-r from-blue-400 to-purple-400"></div>
-              <div className="flex-1 bg-gradient-to-r from-purple-400 to-pink-400"></div>
+              <div className="flex-1 bg-gradient-to-r from-orange-300 to-orange-400"></div>
+              <div className="flex-1 bg-gradient-to-r from-orange-400 to-amber-400"></div>
+              <div className="flex-1 bg-gradient-to-r from-amber-400 to-yellow-500"></div>
+              <div className="flex-1 bg-gradient-to-r from-yellow-500 to-yellow-600"></div>
+              <div className="flex-1 bg-gradient-to-r from-yellow-600 to-orange-600"></div>
             </div>
 
             {/* Percentile lines */}
@@ -157,46 +200,64 @@ export default function BlockTemplateVisualization({
 
         {/* Percentile Details */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-            <div className="text-lg font-bold text-red-600 dark:text-red-400">
+          <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+            <div className="text-lg font-bold text-orange-600 dark:text-orange-400 transition-all duration-500 ease-out">
               {formatFeeRate(p10)}
             </div>
-            <div className="text-sm text-red-600 dark:text-red-400">
+            <div
+              className="text-sm text-orange-600 dark:text-orange-400"
+              title="10% of transactions paid this fee rate or lower"
+            >
               10th Percentile
             </div>
           </div>
-          <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
-            <div className="text-lg font-bold text-yellow-600 dark:text-yellow-400">
+          <div className="text-center p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+            <div className="text-lg font-bold text-amber-600 dark:text-amber-400 transition-all duration-500 ease-out">
               {formatFeeRate(p25)}
             </div>
-            <div className="text-sm text-yellow-600 dark:text-yellow-400">
+            <div
+              className="text-sm text-amber-600 dark:text-amber-400"
+              title="25% of transactions paid this fee rate or lower"
+            >
               25th Percentile
             </div>
           </div>
-          <div className="text-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-            <div className="text-lg font-bold text-green-600 dark:text-green-400">
+          <div className="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <div className="text-lg font-bold text-yellow-600 dark:text-yellow-400 transition-all duration-500 ease-out">
               {formatFeeRate(p50)}
             </div>
-            <div className="text-sm text-green-600 dark:text-green-400">
+            <div
+              className="text-sm text-yellow-600 dark:text-yellow-400"
+              title="50% of transactions paid this fee rate or lower (median)"
+            >
               50th Percentile
             </div>
-            <div className="text-xs text-green-500 dark:text-green-300 font-semibold">
+            <div
+              className="text-xs text-yellow-500 dark:text-yellow-300 font-semibold"
+              title="Recommended fee rate for next block inclusion"
+            >
               🎯 Target
             </div>
           </div>
-          <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-            <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
+          <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+            <div className="text-lg font-bold text-orange-600 dark:text-orange-400 transition-all duration-500 ease-out">
               {formatFeeRate(p75)}
             </div>
-            <div className="text-sm text-blue-600 dark:text-blue-400">
+            <div
+              className="text-sm text-orange-600 dark:text-orange-400"
+              title="75% of transactions paid this fee rate or lower"
+            >
               75th Percentile
             </div>
           </div>
-          <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-            <div className="text-lg font-bold text-purple-600 dark:text-purple-400">
+          <div className="text-center p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+            <div className="text-lg font-bold text-amber-600 dark:text-amber-400 transition-all duration-500 ease-out">
               {formatFeeRate(p90)}
             </div>
-            <div className="text-sm text-purple-600 dark:text-purple-400">
+            <div
+              className="text-sm text-amber-600 dark:text-amber-400"
+              title="90% of transactions paid this fee rate or lower"
+            >
               90th Percentile
             </div>
           </div>
@@ -205,12 +266,12 @@ export default function BlockTemplateVisualization({
 
       {/* Block Statistics */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
-        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+        <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
           Block Statistics
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
           <div>
-            <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">
+            <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
               Fee Information
             </h4>
             <div className="space-y-2 text-sm">
@@ -250,7 +311,7 @@ export default function BlockTemplateVisualization({
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">
+            <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
               Transaction Info
             </h4>
             <div className="space-y-2 text-sm">
@@ -288,7 +349,7 @@ export default function BlockTemplateVisualization({
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-700 dark:text-gray-300 mb-3">
+            <h4 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-3">
               Block Info
             </h4>
             <div className="space-y-2 text-sm">
@@ -331,12 +392,12 @@ export default function BlockTemplateVisualization({
 
       {/* Mempool-Based Estimation Explanation */}
       <div className="bg-gradient-to-r from-orange-50 to-green-50 dark:from-orange-900/20 dark:to-green-900/20 rounded-xl p-6 border border-orange-200 dark:border-orange-800">
-        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+        <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
           How Mempool-Based Estimation Works
         </h3>
         <div className="grid md:grid-cols-2 gap-6">
           <div>
-            <h4 className="font-semibold text-orange-700 dark:text-orange-300 mb-2">
+            <h4 className="text-lg font-semibold text-orange-700 dark:text-orange-300 mb-2">
               🎯 Target Fee Rate: {formatFeeRate(p50)}
             </h4>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
@@ -356,7 +417,7 @@ export default function BlockTemplateVisualization({
             </div>
           </div>
           <div>
-            <h4 className="font-semibold text-green-700 dark:text-green-300 mb-2">
+            <h4 className="text-lg font-semibold text-green-700 dark:text-green-300 mb-2">
               📊 Current vs. Mempool-Based
             </h4>
             <div className="space-y-2 text-sm">
