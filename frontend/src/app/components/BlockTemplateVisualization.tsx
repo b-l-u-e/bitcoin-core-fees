@@ -33,8 +33,9 @@ export default function BlockTemplateVisualization({
     fetchBlockStats();
   }, [blockHeight]);
 
-  const formatFeeRate = (feerate: number) => {
-    return `${(feerate * 100000000).toFixed(2)} sat/vB`;
+  const formatFeeRate = (feerate?: number | null) => {
+    if (feerate === undefined || feerate === null) return "n/a sat/vB";
+    return `${feerate.toFixed(2)} sat/vB`;
   };
 
   const formatBytes = (bytes: number) => {
@@ -352,66 +353,6 @@ export default function BlockTemplateVisualization({
                 </span>
                 <span className="font-mono text-xs">
                   {blockStats.blockhash.slice(0, 16)}...
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Mempool-Based Estimation Explanation */}
-      <div className="bg-gradient-to-r from-orange-50 to-green-50 dark:from-orange-900/20 dark:to-green-900/20 rounded-xl p-6 border border-orange-200 dark:border-orange-800">
-        <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-          How Mempool-Based Estimation Works
-        </h3>
-        <div className="grid md:grid-cols-2 gap-6">
-          <div>
-            <h4 className="text-lg font-semibold text-orange-700 dark:text-orange-300 mb-2">
-              🎯 Target Fee Rate: {formatFeeRate(p50)}
-            </h4>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              The 50th percentile fee rate from this block template represents
-              the fee rate needed to be included in the next block. This is the
-              core of mempool-based estimation.
-            </p>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-orange-200 dark:border-orange-700">
-              <div className="text-sm text-orange-600 dark:text-orange-400">
-                <strong>Why 50th percentile?</strong>
-                <br />
-                • 50% of transactions paid this rate or higher
-                <br />
-                • Provides good balance between cost and confirmation
-                <br />• More accurate than historical averages
-              </div>
-            </div>
-          </div>
-          <div>
-            <h4 className="text-lg font-semibold text-green-700 dark:text-green-300 mb-2">
-              📊 Current vs. Mempool-Based
-            </h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">
-                  Current System:
-                </span>
-                <span className="text-red-600 font-semibold">
-                  29.46% overpayment
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">
-                  Mempool-Based:
-                </span>
-                <span className="text-green-600 font-semibold">
-                  0.03% overpayment
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600 dark:text-gray-400">
-                  Accuracy:
-                </span>
-                <span className="text-green-600 font-semibold">
-                  80.96% within range
                 </span>
               </div>
             </div>

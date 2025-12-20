@@ -6,7 +6,7 @@ import threading
 import requests
 from typing import Any, Dict, List, Optional, Tuple
 
-Config = configparser.ConfigParser()
+Config = configparser.ConfigParser(interpolation=None)
 Config.read("rpc_config.ini")
 
 URL = os.environ.get("RPC_URL") or Config.get("RPC_INFO", "URL")
@@ -109,16 +109,20 @@ def get_block_stats(height: int, stats: Optional[List[str]] = None) -> Dict[str,
         ]
     return _rpc_call("getblockstats", [height, stats])
 
-def estimate_smart_fee(conf_target: int, mode: str = "economical", block_policy_only: bool = False, verbosity_level: int = 1) -> Dict[str, Any]:
-    """Wrapper for Bitcoin Core estimatesmartfee (raw result)."""
-    return _rpc_call("estimatesmartfee", [conf_target, mode, block_policy_only, verbosity_level])
+def estimate_smart_fee(conf_target: int, mode: str = "economical") -> Dict[str, Any]:
+    """
+    Wrapper for Bitcoin Core estimatesmartfee (raw result).
+    Note: Modern Core takes [conf_target, estimate_mode]; older params for
+    block_policy_only/verbosity are not used here to avoid RPC errors.
+    """
+    return _rpc_call("estimatesmartfee", [conf_target, mode])
 
-def get_estimated_fee_rate_satvb(conf_target: int, mode: str = "economical", block_policy_only: bool = False, verbosity_level: int = 1) -> Dict[str, Any]:
+def get_estimated_fee_rate_satvb(conf_target: int, mode: str = "economical") -> Dict[str, Any]:
     """
     Estimate smart fee and normalize to sat/vB for downstream consumers.
     Returns { 'feerate_sat_per_vb': Optional[float], 'blocks': Optional[int], 'errors': Optional[List[str]] }
     """
-    raw = estimate_smart_fee(conf_target=conf_target, mode=mode, block_policy_only=block_policy_only, verbosity_level=verbosity_level)
+    raw = estimate_smart_fee(conf_target=conf_target, mode=mode)
     btc_per_kvb = raw.get("feerate")
     blocks = raw.get("blocks")
     errors = raw.get("errors")
@@ -159,8 +163,8 @@ def get_block_template() -> Dict[str, Any]:
     NEW: Get a block template. Critical for advanced fee estimation.
     NOTE: This requires the node to be run with `-blocksonly=0` and potentially have mining enabled.
     """
-    # Use empty template request for minimal overhead
-    return _rpc_call("getblocktemplate", [{"mode": "template"}])
+    # Request template with segwit + signet rules to satisfy signet RPC requirements
+    return _rpc_call("getblocktemplate", [{"mode": "template", "rules": ["segwit", "signet"]}])
 
 # --- Convenience helpers for collector ---
 def get_block_tx_details(height: int) -> Dict[str, Any]:
@@ -233,7 +237,21 @@ def get_mempool_percentile_fee_estimate(percentiles: List[int]) -> Dict[str, Any
     template = get_block_template()
     txs = template.get("transactions", [])
     if not txs:
-        raise Exception("Block template returned no transactions")
+        # Gracefully return empty payload instead of raising to avoid 500s on
+        # quiet networks (e.g., signet) where templates can have zero txs.
+        return {
+            "template_height": template.get("height"),
+            "previous_block_hash": template.get("previousblockhash"),
+            "transactions_considered": 0,
+            "total_weight": 0,
+            "weight_limit": template.get("weightlimit"),
+            "percentiles": [
+                {"percentile": p, "feerate_sat_per_vb": None}
+                for p in cleaned_percentiles
+            ],
+            "generated_at": time.time(),
+            "warnings": ["Block template returned no transactions"],
+        }
 
     # Filter to transactions with fee + weight information
     valid_txs = [

@@ -13,6 +13,10 @@ interface MempoolData {
   lastUpdate: string;
   method: "mempool" | "historical" | "hybrid";
   warnings?: string[];
+  chain?: string;
+  mempoolComponent?: number | null;
+  historicalComponent?: number | null;
+  hasError?: boolean;
 }
 
 export default function DashboardPage() {
@@ -39,6 +43,12 @@ export default function DashboardPage() {
           lastUpdate: new Date().toLocaleTimeString(),
           method: (unified.method as MempoolData["method"]) || "mempool",
           warnings: unified.warnings || [],
+          chain: blockchainInfo.chain,
+          mempoolComponent: unified.components?.mempool ?? null,
+          historicalComponent: unified.components?.historical ?? null,
+          hasError:
+            unified.fee_rate_sat_per_vb == null ||
+            !!(unified.warnings && unified.warnings.length > 0),
         });
       } catch (error) {
         console.error("Failed to fetch real data:", error);
@@ -56,41 +66,30 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-500/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-yellow-500/5 rounded-full blur-3xl animate-pulse delay-1000"></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-yellow-500/3 rounded-full blur-3xl animate-pulse delay-500"></div>
-      </div>
-
+    <div className="min-h-screen bg-[#0b0c10] text-gray-100 relative overflow-hidden">
       <header className="relative bg-black/80 backdrop-blur-md border-b border-gray-800 shadow-xl">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg flex items-center justify-center shadow-lg">
+              <div className="w-8 h-8 bg-[#cc7400] rounded-lg flex items-center justify-center shadow-lg">
                 <span className="text-black font-bold text-sm">₿</span>
               </div>
-              <Link
-                href="/"
-                className="text-xl font-bold bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent"
-              >
+              <Link href="/" className="text-xl font-bold text-[#cc7400]">
                 Bitcoin Core Fees
               </Link>
             </div>
             <nav className="flex space-x-6">
               <Link
                 href="/"
-                className="text-gray-300 hover:text-yellow-400 transition-all duration-300 hover:scale-105 font-medium relative group"
+                className="text-gray-300 hover:text-[#cc7400] transition-all duration-200 font-medium"
               >
                 Home
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-yellow-400 transition-all duration-300 group-hover:w-full"></span>
               </Link>
               <Link
                 href="/stats"
-                className="text-gray-300 hover:text-yellow-400 transition-all duration-300 hover:scale-105 font-medium relative group"
+                className="text-gray-300 hover:text-[#cc7400] transition-all duration-200 font-medium"
               >
-                Analytics
-                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-yellow-400 transition-all duration-300 group-hover:w-full"></span>
+                Stats
               </Link>
             </nav>
           </div>
@@ -115,16 +114,23 @@ export default function DashboardPage() {
                   <p className="text-xs text-gray-400 mb-3">
                     Recommended fee for next block inclusion (p50, target=1)
                   </p>
+                  {data?.chain && (
+                    <p className="text-xs text-[#cc7400]">
+                      Chain: {data.chain}
+                    </p>
+                  )}
                 </div>
 
                 <div className="relative group">
-                  <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl transform translate-x-1 translate-y-1 opacity-20 group-hover:opacity-30 transition-opacity duration-300"></div>
-                  <div className="relative bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-xl p-6 text-black shadow-2xl group-hover:shadow-yellow-500/25 transition-all duration-300 group-hover:scale-105">
+                  <div className="absolute inset-0 bg-[#cc7400]/30 rounded-xl transform translate-x-1 translate-y-1 opacity-30"></div>
+                  <div className="relative bg-[#cc7400] rounded-xl p-6 text-black shadow-2xl transition-all duration-300 group-hover:scale-105">
                     <div className="text-center space-y-4">
                       {/* Main fee rate */}
                       <div className="space-y-2">
                         <div className="text-4xl font-bold transition-all duration-500 ease-out animate-pulse">
-                          {data?.feeRate.toFixed(1)}
+                          {data?.feeRate != null
+                            ? data.feeRate.toFixed(1)
+                            : "--"}
                         </div>
                         <div className="text-lg font-semibold opacity-90">
                           sat/vB
@@ -139,9 +145,16 @@ export default function DashboardPage() {
                             ? "Mempool (p50)"
                             : data?.method}
                         </div>
+                        {data?.hasError && (
+                          <div className="text-xs text-red-200">
+                            mempool estimator unavailable — see warnings below
+                          </div>
+                        )}
                         {data?.warnings && data.warnings.length > 0 && (
-                          <div className="text-xs text-yellow-200">
-                            {data.warnings[0]}
+                          <div className="text-xs text-yellow-200 space-y-1">
+                            {data.warnings.slice(0, 2).map((w, idx) => (
+                              <div key={idx}>{w}</div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -161,52 +174,35 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Data Visualization */}
-            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-gray-700">
-              <h3 className="text-2xl font-bold text-white mb-4 text-center">
-                Understanding the Data
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <div className="w-4 h-4 bg-orange-500 rounded-full mx-auto mb-2"></div>
-                  <h4 className="text-lg font-semibold text-white mb-1">
-                    Current Block
-                  </h4>
-                  <p className="text-xs text-gray-300">
-                    Shows the actual weight (KWU) of transactions currently in
-                    the block being mined
-                  </p>
-                </div>
-                <div className="text-center">
-                  <div className="w-4 h-4 bg-amber-500 rounded-full mx-auto mb-2"></div>
-                  <h4 className="text-lg font-semibold text-white mb-1">
-                    Removed Transactions
-                  </h4>
-                  <p className="text-xs text-gray-300">
-                    Weight of transactions that were removed from the mempool
-                    when the previous block was mined
-                  </p>
-                </div>
-                <div className="text-center">
-                  <div className="w-4 h-4 bg-yellow-500 rounded-full mx-auto mb-2"></div>
-                  <h4 className="text-lg font-semibold text-white mb-1">
-                    Previous Block
-                  </h4>
-                  <p className="text-xs text-gray-300">
-                    Historical data from the last completed block for comparison
-                    and trend analysis
-                  </p>
+            {/* Components */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4">
+                <div className="text-sm text-gray-400 mb-1">Chain</div>
+                <div className="text-xl font-bold text-white">
+                  {data?.chain || "—"}
                 </div>
               </div>
-              <div className="mt-4 text-center">
-                <p className="text-xs text-gray-400">
-                  <strong className="text-gray-300">
-                    KWU (Kilo Weight Units):
-                  </strong>{" "}
-                  A measure of transaction weight in Bitcoin. The progress bars
-                  show how full each block is compared to the maximum capacity
-                  (3.8 KWU).
-                </p>
+              <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4">
+                <div className="text-sm text-gray-400 mb-1">
+                  Mempool estimator (p50)
+                </div>
+                <div className="text-xl font-bold text-orange-400">
+                  {data?.mempoolComponent != null
+                    ? data.mempoolComponent.toFixed(1)
+                    : "n/a"}{" "}
+                  sat/vB
+                </div>
+              </div>
+              <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4">
+                <div className="text-sm text-gray-400 mb-1">
+                  Historical estimator
+                </div>
+                <div className="text-xl font-bold text-amber-300">
+                  {data?.historicalComponent != null
+                    ? data.historicalComponent.toFixed(1)
+                    : "n/a"}{" "}
+                  sat/vB
+                </div>
               </div>
             </div>
 

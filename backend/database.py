@@ -165,7 +165,15 @@ def fetch_recent_analysis(limit: int = 1000, forecaster_name: str = "OurModelV1"
     ]
 
 def compute_summary(limit: int = 1000, forecaster_name: str = "OurModelV1") -> Dict[str, Any]:
-    rows = fetch_recent_analysis(limit=limit, forecaster_name=forecaster_name)
+    try:
+        rows = fetch_recent_analysis(limit=limit, forecaster_name=forecaster_name)
+    except sqlite3.OperationalError as e:
+        # Handle missing table gracefully; initialize DB and return empty summary
+        if "no such table" in str(e).lower():
+            init_db()
+            rows = []
+        else:
+            raise
     if not rows:
         return {
             "forecaster": forecaster_name,

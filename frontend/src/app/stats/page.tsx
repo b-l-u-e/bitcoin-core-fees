@@ -2,16 +2,32 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { api, type FeeEstimate, type AnalyticsSummary } from "@/lib/api";
+import {
+  api,
+  type FeeEstimate,
+  type AnalyticsSummary,
+  type MempoolHealthResponse,
+} from "@/lib/api";
 import BlockTemplateVisualization from "@/app/components/BlockTemplateVisualization";
 
 export default function StatsPage() {
   const [feeEstimate, setFeeEstimate] = useState<FeeEstimate | null>(null);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
+  const [mempoolHealth, setMempoolHealth] =
+    useState<MempoolHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState(1);
   const [blockHeight, setBlockHeight] = useState(800000);
+  const [healthStart, setHealthStart] = useState<number | null>(null);
+  const [healthInterval, setHealthInterval] = useState<number>(50);
+  const [healthSource, setHealthSource] = useState<"local" | "external">(
+    "local"
+  );
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(10); // seconds
 
   const fetchFeeEstimate = async (confTarget: number) => {
     try {
@@ -19,9 +35,11 @@ export default function StatsPage() {
       setError(null);
       const data = await api.getFeeEstimate(confTarget, "economical", 2);
       setFeeEstimate(data);
-      // Also refresh analytics summary
-      const s = await api.getAnalyticsSummary(1000);
-      setSummary(s);
+      // Also refresh analytics summary if not auto-refreshing
+      if (!autoRefresh) {
+        const s = await api.getAnalyticsSummary(1000);
+        setSummary(s);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch data");
       setFeeEstimate(null);
@@ -30,9 +48,89 @@ export default function StatsPage() {
     }
   };
 
+  const fetchAnalyticsSummary = async () => {
+    try {
+      const s = await api.getAnalyticsSummary(1000);
+      setSummary(s);
+    } catch (err) {
+      console.error("Failed to fetch analytics summary:", err);
+    }
+  };
+
   useEffect(() => {
     fetchFeeEstimate(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
+
+  // Auto-refresh performance metrics
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    // Initial fetch
+    fetchAnalyticsSummary();
+
+    // Set up polling interval
+    const interval = setInterval(() => {
+      fetchAnalyticsSummary();
+    }, refreshInterval * 1000);
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, refreshInterval]);
+
+  useEffect(() => {
+    const loadHealth = async () => {
+      try {
+        setHealthLoading(true);
+        setHealthError(null);
+        const info = await api.getBlockchainInfo();
+        setBlockHeight(info.blocks);
+        const start = Math.max(1, info.blocks - 50);
+        setHealthStart(start);
+        const mh = await api.getMempoolHealth(
+          start,
+          healthInterval,
+          healthSource
+        );
+        setMempoolHealth(mh);
+      } catch (err) {
+        setHealthError(
+          err instanceof Error ? err.message : "Failed to load mempool health"
+        );
+        setMempoolHealth(null);
+      } finally {
+        setHealthLoading(false);
+      }
+    };
+    loadHealth();
+  }, [healthInterval, healthSource]);
+
+  const refreshMempoolHealth = async (overrideStart?: number) => {
+    const start = overrideStart ?? healthStart;
+    if (!start) return;
+    try {
+      setHealthLoading(true);
+      setHealthError(null);
+      const mh = await api.getMempoolHealth(
+        start,
+        healthInterval,
+        healthSource
+      );
+      setMempoolHealth(mh);
+    } catch (err) {
+      setHealthError(
+        err instanceof Error ? err.message : "Failed to load mempool health"
+      );
+      setMempoolHealth(null);
+    } finally {
+      setHealthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // keep healthStart in sync with blockHeight/interval for refresh
+    const start = Math.max(1, blockHeight - healthInterval);
+    setHealthStart(start);
+  }, [blockHeight, healthInterval]);
 
   const formatFeeRate = (feerate: number) => {
     return `${(feerate * 100000000).toFixed(2)} sat/vB`;
@@ -49,7 +147,7 @@ export default function StatsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0b0c10] text-gray-100 relative overflow-hidden">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-yellow-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -95,25 +193,23 @@ export default function StatsPage() {
       <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Header */}
         <div className="text-center mb-12">
-          <div className="inline-flex items-center px-4 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-full text-yellow-400 text-sm font-medium mb-6 animate-pulse">
-            <div className="w-2 h-2 bg-yellow-400 rounded-full mr-2 animate-ping"></div>
+          <div className="inline-flex items-center px-4 py-2 bg-[#cc7400]/10 border border-[#cc7400]/30 rounded-full text-[#cc7400] text-sm font-medium mb-6">
+            <div className="w-2 h-2 bg-[#cc7400] rounded-full mr-2 animate-ping"></div>
             Live Analytics Dashboard
           </div>
           <h1 className="text-4xl md:text-6xl font-bold mb-4">
-            <span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 bg-clip-text text-transparent">
-              Live Fee Estimation
-            </span>
+            <span className="text-[#cc7400]">Live Fee Estimation</span>
           </h1>
           <p className="text-xl text-gray-300 max-w-2xl mx-auto">
             Real-time Bitcoin fee estimation using{" "}
-            <span className="text-yellow-400 font-semibold">
+            <span className="text-[#cc7400] font-semibold">
               current mempool data
             </span>
           </p>
         </div>
 
         {/* Controls */}
-        <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-gray-700 mb-8">
+        <div className="bg-[#0f1115] backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-gray-800 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -122,7 +218,7 @@ export default function StatsPage() {
               <select
                 value={target}
                 onChange={(e) => setTarget(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-700 rounded-lg bg-[#0b0c10] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
               >
                 <option value={1}>1 block (~10 minutes)</option>
                 <option value={2}>2 blocks (~20 minutes)</option>
@@ -140,18 +236,25 @@ export default function StatsPage() {
                 type="number"
                 value={blockHeight}
                 onChange={(e) => setBlockHeight(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-yellow-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-gray-700 rounded-lg bg-[#0b0c10] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
                 placeholder="800000"
                 min="1"
               />
             </div>
             <div className="flex items-end">
               <button
-                onClick={() => fetchFeeEstimate(target)}
-                disabled={loading}
-                className="w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-400 text-black px-6 py-2 rounded-lg font-semibold transition-colors"
+                onClick={async () => {
+                  const start = Math.max(1, blockHeight - healthInterval);
+                  setHealthStart(start);
+                  await Promise.all([
+                    fetchFeeEstimate(target),
+                    refreshMempoolHealth(start),
+                  ]);
+                }}
+                disabled={loading || healthLoading}
+                className="w-full bg-[#cc7400] hover:brightness-110 disabled:bg-gray-600 text-black px-6 py-2 rounded-lg font-semibold transition-colors"
               >
-                {loading ? "Loading..." : "Refresh Data"}
+                {loading || healthLoading ? "Loading..." : "Refresh Data"}
               </button>
             </div>
           </div>
@@ -166,6 +269,125 @@ export default function StatsPage() {
             <p className="text-red-600 dark:text-red-400">{error}</p>
           </div>
         )}
+
+        {/* Mempool Health (local node) */}
+        <div className="mb-8">
+          <div className="bg-[#0f1115] backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-gray-800">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-2xl font-bold text-white">
+                  Mempool Health (local node)
+                </h3>
+                <p className="text-sm text-gray-400">
+                  Window: {healthInterval} blocks starting at{" "}
+                  {healthStart ?? "…"} • Source:{" "}
+                  {mempoolHealth?.source || "local"}
+                </p>
+              </div>
+              <div className="text-sm text-gray-300">
+                Height: {blockHeight.toLocaleString()}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Start height
+                </label>
+                <input
+                  type="number"
+                  value={healthStart ?? ""}
+                  onChange={(e) => setHealthStart(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-800 rounded-lg bg-[#0b0c10] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+                  placeholder="283400"
+                  min={1}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Interval (blocks)
+                </label>
+                <input
+                  type="number"
+                  value={healthInterval}
+                  onChange={(e) => setHealthInterval(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-800 rounded-lg bg-[#0b0c10] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+                  min={1}
+                  max={2000}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Source
+                </label>
+                <select
+                  value={healthSource}
+                  onChange={(e) =>
+                    setHealthSource(e.target.value as "local" | "external")
+                  }
+                  className="w-full px-3 py-2 border border-gray-800 rounded-lg bg-[#0b0c10] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+                >
+                  <option value="local">Local (signet RPC)</option>
+                  <option value="external">External (mainnet dataset)</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={() => refreshMempoolHealth()}
+                  className="w-full bg-[#cc7400] hover:brightness-110 text-black px-4 py-2 rounded-lg font-semibold transition-colors"
+                  disabled={healthLoading || !healthStart}
+                >
+                  {healthLoading ? "Loading..." : "Refresh"}
+                </button>
+              </div>
+            </div>
+
+            {healthLoading && (
+              <div className="flex items-center text-gray-300">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-yellow-500 mr-3"></div>
+                Loading mempool health...
+              </div>
+            )}
+
+            {healthError && (
+              <div className="text-red-400 text-sm">
+                Failed to load mempool health: {healthError}
+              </div>
+            )}
+
+            {!healthLoading && mempoolHealth && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-[#0b0c10] border border-gray-800 rounded-xl p-4">
+                  <div className="text-sm text-gray-400 mb-1">Underpaid</div>
+                  <div className="text-2xl font-bold text-[#cc7400]">
+                    {mempoolHealth.summary.underpaid.count}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {mempoolHealth.summary.underpaid.percent}% of window
+                  </div>
+                </div>
+                <div className="bg-[#0b0c10] border border-gray-800 rounded-xl p-4">
+                  <div className="text-sm text-gray-400 mb-1">Within Range</div>
+                  <div className="text-2xl font-bold text-green-400">
+                    {mempoolHealth.summary.within.count}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {mempoolHealth.summary.within.percent}% of window
+                  </div>
+                </div>
+                <div className="bg-[#0b0c10] border border-gray-800 rounded-xl p-4">
+                  <div className="text-sm text-gray-400 mb-1">Overpaid</div>
+                  <div className="text-2xl font-bold text-red-400">
+                    {mempoolHealth.summary.overpaid.count}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {mempoolHealth.summary.overpaid.percent}% of window
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Loading State */}
         {loading && !feeEstimate && (
@@ -265,164 +487,104 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Enhanced Mempool-Based Estimation Demo */}
-        <div className="bg-gradient-to-r from-orange-50 to-green-50 dark:from-orange-900/20 dark:to-green-900/20 rounded-xl p-8 border border-orange-200 dark:border-orange-800">
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-6 text-center">
-            Mempool-Based Estimation Analysis
-          </h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-6 border border-red-200 dark:border-red-800">
-              <h3 className="text-2xl font-semibold text-red-800 dark:text-red-200 mb-4 flex items-center">
-                <div className="w-3 h-3 bg-red-500 rounded-full mr-3"></div>
-                Current System Issues
-              </h3>
-              <ul className="space-y-3 text-red-700 dark:text-red-300">
-                <li className="flex items-start">
-                  <span className="text-red-500 mr-2">⚠️</span>
-                  &quot;Mempool is unreliable for fee rate forecasting&quot;
-                </li>
-                <li className="flex items-start">
-                  <span className="text-red-500 mr-2">📊</span>
-                  Based on historical data, not current conditions
-                </li>
-                <li className="flex items-start">
-                  <span className="text-red-500 mr-2">🐌</span>
-                  Slow to react to network changes
-                </li>
-                <li className="flex items-start">
-                  <span className="text-red-500 mr-2">💰</span>
-                  High overpayment rates (29.46%)
-                </li>
-              </ul>
-            </div>
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-6 border border-yellow-200 dark:border-yellow-800">
-              <h3 className="text-2xl font-semibold text-yellow-800 dark:text-yellow-200 mb-4 flex items-center">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full mr-3"></div>
-                Proposed Solution
-              </h3>
-              <ul className="space-y-3 text-yellow-700 dark:text-yellow-300">
-                <li className="flex items-start">
-                  <span className="text-yellow-500 mr-2">⚡</span>
-                  Real-time mempool analysis
-                </li>
-                <li className="flex items-start">
-                  <span className="text-yellow-500 mr-2">📈</span>
-                  50th percentile fee rate estimation
-                </li>
-                <li className="flex items-start">
-                  <span className="text-yellow-500 mr-2">🔄</span>
-                  Responsive to current network conditions
-                </li>
-                <li className="flex items-start">
-                  <span className="text-yellow-500 mr-2">💡</span>
-                  Dramatically reduced overpayment (0.03%)
-                </li>
-              </ul>
-            </div>
-            <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-6 border border-green-200 dark:border-green-800">
-              <h3 className="text-2xl font-semibold text-green-800 dark:text-green-200 mb-4 flex items-center">
-                <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
-                Implementation Benefits
-              </h3>
-              <ul className="space-y-3 text-green-700 dark:text-green-300">
-                <li className="flex items-start">
-                  <span className="text-green-500 mr-2">🎯</span>
-                  Higher accuracy (80.96% vs 59.50%)
-                </li>
-                <li className="flex items-start">
-                  <span className="text-green-500 mr-2">💸</span>
-                  Cost savings for users
-                </li>
-                <li className="flex items-start">
-                  <span className="text-green-500 mr-2">🚀</span>
-                  Better user experience
-                </li>
-                <li className="flex items-start">
-                  <span className="text-green-500 mr-2">📊</span>
-                  Real-time data insights
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
         {/* Block Template Visualization */}
         <div className="mt-12">
-          <h2 className="text-3xl font-bold text-center text-gray-900 dark:text-white mb-8">
+          <h2 className="text-3xl font-bold text-center text-white mb-6">
             Block Template Analysis
           </h2>
-          <p className="text-center text-gray-600 dark:text-gray-300 mb-8">
-            See how mempool-based fee estimation works by analyzing actual block
-            data
-          </p>
           <BlockTemplateVisualization blockHeight={blockHeight} />
         </div>
 
-        {/* Performance Metrics (live from /analytics/summary if available) */}
+        {/* Performance Metrics (live from /analytics/summary) */}
         <div className="mt-12">
-          <h2 className="text-3xl font-bold text-center text-gray-900 dark:text-white mb-8">
-            Performance Metrics
-          </h2>
-          <p className="text-center text-gray-600 dark:text-gray-300 mb-8">
-            {summary
-              ? `Window: ${summary.window ?? 1000} • Source: ${
-                  summary.source ?? "internal"
-                }`
-              : "Loading recent analytics..."}
-          </p>
+          <div className="flex flex-col md:flex-row justify-between items-center mb-6">
+            <h2 className="text-3xl font-bold text-center text-white mb-4 md:mb-0">
+              Performance Metrics
+            </h2>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(e) => setAutoRefresh(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-600 bg-[#0b0c10] text-[#cc7400] focus:ring-[#cc7400]"
+                />
+                <span>Auto-refresh</span>
+              </label>
+              {autoRefresh && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-400">Interval (s):</label>
+                  <input
+                    type="number"
+                    value={refreshInterval}
+                    onChange={(e) =>
+                      setRefreshInterval(Math.max(5, Number(e.target.value)))
+                    }
+                    min="5"
+                    max="60"
+                    className="w-16 px-2 py-1 border border-gray-700 rounded bg-[#0b0c10] text-white text-sm focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+                  />
+                </div>
+              )}
+              <button
+                onClick={fetchAnalyticsSummary}
+                disabled={!summary}
+                className="px-4 py-2 bg-[#cc7400] hover:brightness-110 disabled:bg-gray-600 disabled:cursor-not-allowed text-black rounded-lg font-semibold text-sm transition-colors"
+              >
+                Refresh Now
+              </button>
+            </div>
+          </div>
+          <div className="text-center mb-8">
+            <p className="text-gray-400">
+              {summary
+                ? `Window: ${summary.window ?? 1000} • Source: ${
+                    summary.source ?? "internal"
+                  }`
+                : "Loading recent analytics..."}
+            </p>
+            {autoRefresh && summary && (
+              <p className="text-sm text-green-400 mt-2 flex items-center justify-center gap-2">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                Auto-refreshing every {refreshInterval}s
+              </p>
+            )}
+          </div>
 
-          <div className="grid md:grid-cols-3 gap-8 mb-12">
-            <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-green-500/20 hover:border-green-400/40 transition-all duration-300 hover:scale-105">
-              <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative z-10">
-                <div className="text-5xl font-bold text-green-400 mb-3 transition-all duration-500 ease-out">
-                  {summary ? `${summary.within_perc}%` : "—"}
+          {summary ? (
+            <div className="grid md:grid-cols-3 gap-8 mb-12">
+              <div className="bg-[#0f1115] border border-gray-800 rounded-2xl p-8">
+                <div className="text-5xl font-bold text-green-400 mb-3">
+                  {summary.within_perc != null
+                    ? `${summary.within_perc}%`
+                    : "—"}
                 </div>
                 <div className="text-lg text-gray-300 mb-2">Accuracy Rate</div>
                 <div className="text-sm text-green-400">
-                  Within target range
-                </div>
-                <div className="w-full bg-gray-700 rounded-full h-2 mt-4">
-                  <div
-                    className="bg-gradient-to-r from-green-500 to-green-400 h-2 rounded-full transition-all duration-1000"
-                    style={{
-                      width: summary ? `${summary.within_perc}%` : "0%",
-                    }}
-                  ></div>
+                  Within target range ({summary.within_val ?? 0} of{" "}
+                  {summary.total ?? 0})
                 </div>
               </div>
-            </div>
 
-            <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-blue-500/20 hover:border-blue-400/40 transition-all duration-300 hover:scale-105">
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative z-10">
-                <div className="text-5xl font-bold text-blue-400 mb-3 transition-all duration-500 ease-out">
-                  {summary ? `${summary.overpayment_perc}%` : "—"}
+              <div className="bg-[#0f1115] border border-gray-800 rounded-2xl p-8">
+                <div className="text-5xl font-bold text-blue-400 mb-3">
+                  {summary.overpayment_perc != null
+                    ? `${summary.overpayment_perc}%`
+                    : "—"}
                 </div>
                 <div className="text-lg text-gray-300 mb-2">
                   Overpayment Rate
                 </div>
                 <div className="text-sm text-blue-400">
-                  {summary
-                    ? `${summary.overpayment_val} overpaid of ${summary.total}`
-                    : ""}
-                </div>
-                <div className="w-full bg-gray-700 rounded-full h-2 mt-4">
-                  <div
-                    className="bg-gradient-to-r from-blue-500 to-blue-400 h-2 rounded-full transition-all duration-1000"
-                    style={{
-                      width: summary ? `${summary.overpayment_perc}%` : "0%",
-                    }}
-                  ></div>
+                  {`${summary.overpayment_val ?? 0} overpaid of ${
+                    summary.total ?? 0
+                  }`}
                 </div>
               </div>
-            </div>
 
-            <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-yellow-500/20 hover:border-yellow-400/40 transition-all duration-300 hover:scale-105">
-              <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              <div className="relative z-10">
-                <div className="text-5xl font-bold text-yellow-400 mb-3 transition-all duration-500 ease-out">
-                  {summary?.avg_block_coverage != null
+              <div className="bg-[#0f1115] border border-gray-800 rounded-2xl p-8">
+                <div className="text-5xl font-bold text-yellow-400 mb-3">
+                  {summary.avg_block_coverage != null
                     ? `${Math.round(summary.avg_block_coverage * 100)}%`
                     : "—"}
                 </div>
@@ -432,120 +594,11 @@ export default function StatsPage() {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Performance Comparison removed (dummy) */}
-
-        {/* Implementation Roadmap */}
-        <div className="mt-16 bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-gray-700">
-          <h2 className="text-3xl font-bold text-white mb-8 text-center">
-            Implementation Roadmap & Suggestions
-          </h2>
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-yellow-400 mb-4">
-                🚀 Phase 1: Core Implementation
-              </h3>
-              <div className="space-y-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-yellow-500/20">
-                  <h4 className="text-lg font-semibold text-yellow-300 mb-2">
-                    Mempool Analysis Engine
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    Implement real-time mempool monitoring with 50th percentile
-                    fee rate calculation
-                  </p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-yellow-500/20">
-                  <h4 className="text-lg font-semibold text-yellow-300 mb-2">
-                    API Integration
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    Connect to Bitcoin Core RPC for live mempool and blockchain
-                    data
-                  </p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-yellow-500/20">
-                  <h4 className="text-lg font-semibold text-yellow-300 mb-2">
-                    Fee Estimation Algorithm
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    Develop mempool-based fee estimation with configurable
-                    thresholds
-                  </p>
-                </div>
-              </div>
+          ) : (
+            <div className="text-center text-gray-400 mb-12">
+              Analytics not available yet.
             </div>
-            <div className="space-y-6">
-              <h3 className="text-2xl font-semibold text-green-400 mb-4">
-                📈 Phase 2: Enhancement
-              </h3>
-              <div className="space-y-4">
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-green-500/20">
-                  <h4 className="text-lg font-semibold text-green-300 mb-2">
-                    Historical Analysis
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    Add historical data comparison and trend analysis
-                    capabilities
-                  </p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-green-500/20">
-                  <h4 className="text-lg font-semibold text-green-300 mb-2">
-                    Advanced Metrics
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    Implement confidence intervals and accuracy tracking
-                  </p>
-                </div>
-                <div className="bg-gray-800/50 rounded-lg p-4 border border-green-500/20">
-                  <h4 className="text-lg font-semibold text-green-300 mb-2">
-                    User Interface
-                  </h4>
-                  <p className="text-gray-300 text-sm">
-                    Create intuitive dashboards and real-time visualization
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-xl p-6 border border-blue-500/20">
-            <h3 className="text-xl font-semibold text-blue-300 mb-4">
-              💡 Key Suggestions for Bitcoin Core Integration
-            </h3>
-            <ul className="space-y-2 text-gray-300">
-              <li className="flex items-start">
-                <span className="text-blue-400 mr-2">•</span>
-                <span>
-                  Add mempool-based fee estimation as an alternative to the
-                  current historical method
-                </span>
-              </li>
-              <li className="flex items-start">
-                <span className="text-blue-400 mr-2">•</span>
-                <span>
-                  Implement configurable thresholds for different use cases
-                  (economical vs conservative)
-                </span>
-              </li>
-              <li className="flex items-start">
-                <span className="text-blue-400 mr-2">•</span>
-                <span>
-                  Provide both methods side-by-side for comparison and gradual
-                  adoption
-                </span>
-              </li>
-              <li className="flex items-start">
-                <span className="text-blue-400 mr-2">•</span>
-                <span>
-                  Add comprehensive testing and validation against historical
-                  data
-                </span>
-              </li>
-            </ul>
-          </div>
+          )}
         </div>
       </main>
     </div>

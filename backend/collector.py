@@ -1,20 +1,20 @@
 import time
-import random
 import os
+from typing import Optional
 from database import init_db, insert_analysis
 from json_rpc_request import (
-    get_block_count, 
-    get_block_tx_details, 
-    get_raw_mempool, 
-    get_block_template, 
+    get_block_count,
+    get_block_tx_details,
+    get_raw_mempool,
     get_estimated_fee_rate_satvb,
-    get_block_txids
+    get_block_txids,
 )
 
 # Configuration for the collector loop
 COLLECTOR_SLEEP_TIME = 30  # for a new block every 30 seconds
 LAST_PROCESSED_HEIGHT = 0
-INITIAL_HISTORY_DEPTH = 1000 # The number of blocks to fetch initially
+# The number of blocks to fetch initially (configurable via INITIAL_HISTORY_DEPTH env var)
+INITIAL_HISTORY_DEPTH = int(os.environ.get("INITIAL_HISTORY_DEPTH", "5000"))
 PRE_BLOCK_MEMPOOL_TXIDS = set()
 PRE_BLOCK_MEMPOOL_VERBOSE = {}
 
@@ -33,7 +33,7 @@ def get_custom_fee_prediction_asap(percentile: int = 50) -> float:
             fee = plist[0].get("feerate_sat_per_vb")
             if isinstance(fee, (int, float)) and fee > 0:
                 return float(fee)
-
+        
         # Fallback to Core estimator if mempool estimator unavailable
         core_estimate = get_estimated_fee_rate_satvb(conf_target=1, mode='economical')
         predicted_fee = core_estimate.get('feerate_sat_per_vb')
@@ -128,6 +128,9 @@ def process_block(height: int, pre_block_mempool_txids: set, pre_verbose: dict):
             min_fee = block_details['min_fee']
             max_fee = block_details['max_fee']
             percentiles = block_details.get('percentiles') or []
+            # Normalize percentiles to length 5 with None padding
+            while len(percentiles) < 5:
+                percentiles.append(None)
             coverage = _compute_block_coverage(height, pre_block_mempool_txids)
             high_fee_incl = _compute_high_fee_inclusion_ratio(height, pre_verbose)
             
@@ -189,7 +192,7 @@ def run_collector_cycle(initial_population: bool = False):
         print(f"[COLLECTOR] Failed to snapshot mempool (verbose): {e}")
         PRE_BLOCK_MEMPOOL_TXIDS = set()
         PRE_BLOCK_MEMPOOL_VERBOSE = {}
-
+    
     for height in blocks_to_process:
         if height > LAST_PROCESSED_HEIGHT:
             if process_block(height, PRE_BLOCK_MEMPOOL_TXIDS, PRE_BLOCK_MEMPOOL_VERBOSE):
