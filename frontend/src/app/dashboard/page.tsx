@@ -1,76 +1,146 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
-import FeeRateTimeline from "@/app/components/FeeRateTimeline";
-import MempoolSizeChart from "@/app/components/MempoolSizeChart";
-import FeeDistributionChart from "@/app/components/FeeDistributionChart";
+import {
+  api,
+  type MempoolHealthResponse,
+  type MempoolInfo,
+  type UnifiedEstimate,
+} from "@/lib/api";
+import BlockStatsChartD3 from "@/app/components/BlockStatsChartD3";
 
-// Simple mempool data interface
-interface MempoolData {
-  feeRate: number; // s/vb
-  mempoolSize: number;
-  totalFees: number;
-  blockHeight: number;
-  lastUpdate: string;
-  method: "mempool" | "historical" | "hybrid";
-  warnings?: string[];
-  chain?: string;
-  mempoolComponent?: number | null;
-  historicalComponent?: number | null;
-  hasError?: boolean;
-}
+type ChartBlock = {
+  height: number;
+  p25: number | null;
+  p75: number | null;
+};
 
 export default function DashboardPage() {
-  const [data, setData] = useState<MempoolData | null>(null);
+  const [estimate, setEstimate] = useState<UnifiedEstimate | null>(null);
+  const [mempoolHealth, setMempoolHealth] =
+    useState<MempoolHealthResponse | null>(null);
+  const [mempoolInfo, setMempoolInfo] = useState<MempoolInfo | null>(null);
+  const [target, setTarget] = useState(2);
+  const [healthInterval, setHealthInterval] = useState(50);
+  const [healthStart, setHealthStart] = useState<number | null>(null);
+  const [blockHeight, setBlockHeight] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [startNotice, setStartNotice] = useState<string | null>(null);
+
+  const fetchEstimate = async (confTarget: number) => {
+    try {
+      const result = await api.getUnifiedEstimate("mempool", confTarget, 50);
+      setEstimate(result);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load fee estimate"
+      );
+      setEstimate(null);
+    }
+  };
+
+  const refreshAll = async (startOverride?: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const info = await api.getBlockchainInfo();
+      const latest = info.blocks;
+      const requestedStart =
+        startOverride ?? healthStart ?? Math.max(1, latest - healthInterval);
+      const maxStart = Math.max(1, latest - healthInterval);
+      const clampedStart = Math.min(requestedStart, maxStart);
+      setStartNotice(
+        requestedStart !== clampedStart
+          ? `Start height adjusted to ${clampedStart.toLocaleString()} because window exceeds tip ${latest.toLocaleString()}.`
+          : null
+      );
+      setBlockHeight(latest);
+      setHealthStart(clampedStart);
+      const [est, health, mem] = await Promise.all([
+        api.getUnifiedEstimate("mempool", target, 50),
+        api.getMempoolHealth(clampedStart, healthInterval, "local"),
+        api.getMempoolInfo(),
+      ]);
+      setEstimate(est);
+      setMempoolHealth(health);
+      setMempoolInfo(mem);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load dashboard data"
+      );
+      setEstimate(null);
+      setMempoolHealth(null);
+      setMempoolInfo(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-
-      try {
-        // Use unified estimator (mempool, target=1, p50)
-        const [unified, mempoolInfo, blockchainInfo] = await Promise.all([
-          api.getUnifiedEstimate("mempool", 1, 50),
-          api.getMempoolInfo(),
-          api.getBlockchainInfo(),
-        ]);
-
-        setData({
-          feeRate: unified.fee_rate_sat_per_vb ?? 0,
-          mempoolSize: mempoolInfo.size,
-          totalFees: mempoolInfo.total_fee,
-          blockHeight: blockchainInfo.blocks,
-          lastUpdate: new Date().toLocaleTimeString(),
-          method: (unified.method as MempoolData["method"]) || "mempool",
-          warnings: unified.warnings || [],
-          chain: blockchainInfo.chain,
-          mempoolComponent: unified.components?.mempool ?? null,
-          historicalComponent: unified.components?.historical ?? null,
-          hasError:
-            unified.fee_rate_sat_per_vb == null ||
-            !!(unified.warnings && unified.warnings.length > 0),
-        });
-      } catch (error) {
-        console.error("Failed to fetch real data:", error);
-        // Show error state instead of mock data
-        setData(null);
-      }
-
-      setLoading(false);
-    };
-
-    fetchData();
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    refreshAll();
   }, []);
 
+  useEffect(() => {
+    fetchEstimate(target);
+  }, [target]);
+
+  const chartBlocks = useMemo<ChartBlock[]>(() => {
+    if (!mempoolHealth) return [];
+    return mempoolHealth.blocks
+      .map((b) => ({
+        height: b.height,
+        p25: b.p25 ?? null,
+        p75: b.p75 ?? null,
+      }))
+      .sort((a, b) => a.height - b.height);
+  }, [mempoolHealth]);
+
+  const estimatePoints = useMemo(() => {
+    const value = estimate?.fee_rate_sat_per_vb;
+    if (value == null) return [];
+    const baseHeight =
+      mempoolHealth?.end_height ??
+      (blockHeight ? Math.max(1, blockHeight - 1) : undefined);
+    if (!baseHeight) return [];
+    return Array.from({ length: target }, (_, idx) => ({
+      height: baseHeight + idx + 1,
+      value,
+    }));
+  }, [estimate, mempoolHealth, blockHeight, target]);
+
+  const startHeight =
+    mempoolHealth?.start_height ??
+    healthStart ??
+    (blockHeight ? Math.max(1, blockHeight - healthInterval) : 0);
+
+  const endHeight = useMemo(
+    () =>
+      Math.max(
+        mempoolHealth?.end_height ?? startHeight,
+        ...estimatePoints.map((p) => p.height)
+      ),
+    [mempoolHealth, startHeight, estimatePoints]
+  );
+
+  const feeDisplay =
+    estimate?.fee_rate_sat_per_vb != null
+      ? estimate.fee_rate_sat_per_vb.toFixed(1)
+      : "—";
+
   return (
-    <div className="min-h-screen bg-[#0b0c10] text-gray-100 relative overflow-hidden">
-      <header className="relative bg-black/80 backdrop-blur-md border-b border-gray-800 shadow-xl">
+    <div
+      className="min-h-screen text-gray-100 relative overflow-hidden"
+      style={{
+        background:
+          "radial-gradient(circle at 20% 20%, rgba(255,184,76,0.06), transparent 28%), radial-gradient(circle at 80% 15%, rgba(56,189,248,0.05), transparent 24%), linear-gradient(180deg, #0b1222 0%, #070c1a 55%, #050910 100%)",
+      }}
+    >
+      <nav className="bg-black/80 backdrop-blur-md border-b border-gray-800 shadow-xl">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-3">
@@ -81,245 +151,203 @@ export default function DashboardPage() {
                 Bitcoin Core Fees
               </Link>
             </div>
-            <nav className="flex space-x-6">
+            <div className="flex space-x-6 text-sm font-medium">
               <Link
                 href="/"
-                className="text-gray-300 hover:text-[#cc7400] transition-all duration-200 font-medium"
+                className="text-gray-300 hover:text-[#cc7400] transition-all duration-200"
               >
                 Home
               </Link>
-              <Link
-                href="/stats"
-                className="text-gray-300 hover:text-[#cc7400] transition-all duration-200 font-medium"
-              >
-                Stats
-              </Link>
-            </nav>
+              <span className="text-gray-500">Dashboard</span>
+            </div>
           </div>
         </div>
-      </header>
+      </nav>
 
-      {/* Main Content */}
-      <main className="relative max-w-6xl mx-auto px-4 py-12">
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500"></div>
+      <main className="relative max-w-6xl mx-auto px-4 py-10 space-y-10">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center px-3 py-1 bg-[#cc7400]/10 border border-[#cc7400]/40 rounded-full text-[#cc7400] text-xs font-semibold">
+            Live mempool analytics
           </div>
-        ) : (
-          <div className="space-y-12">
-            {/* Main Fee Forecast Block */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
-              <div className="space-y-4">
-                <div className="text-center">
-                  <h3 className="text-lg font-semibold text-gray-200 mb-1">
-                    Live Fee Estimate
-                  </h3>
-                  <p className="text-xs text-gray-400 mb-3">
-                    Recommended fee for next block inclusion (p50, target=1)
-                  </p>
-                  {data?.chain && (
-                    <p className="text-xs text-[#cc7400]">
-                      Chain: {data.chain}
-                    </p>
-                  )}
-                </div>
+          <h1 className="text-4xl font-bold text-white">
+            Bitcoin Fee Dashboard
+          </h1>
+          <p className="text-gray-300">
+            Log-scale view of the 25th-75th percentile mempool feerates per
+            block height with the current target-based estimate overlaid.
+          </p>
+        </div>
 
-                <div className="relative group">
-                  <div className="absolute inset-0 bg-[#cc7400]/30 rounded-xl transform translate-x-1 translate-y-1 opacity-30"></div>
-                  <div className="relative bg-[#cc7400] rounded-xl p-6 text-black shadow-2xl transition-all duration-300 group-hover:scale-105">
-                    <div className="text-center space-y-4">
-                      {/* Main fee rate */}
-                      <div className="space-y-2">
-                        <div className="text-4xl font-bold transition-all duration-500 ease-out animate-pulse">
-                          {data?.feeRate != null
-                            ? data.feeRate.toFixed(1)
-                            : "--"}
-                        </div>
-                        <div className="text-lg font-semibold opacity-90">
-                          sat/vB
-                        </div>
-                      </div>
-
-                      {/* Additional context */}
-                      <div className="bg-black/20 rounded-lg p-3 space-y-2">
-                        <div className="text-sm font-medium">
-                          Estimator:{" "}
-                          {data?.method === "mempool"
-                            ? "Mempool (p50)"
-                            : data?.method}
-                        </div>
-                        {data?.hasError && (
-                          <div className="text-xs text-red-200">
-                            mempool estimator unavailable — see warnings below
-                          </div>
-                        )}
-                        {data?.warnings && data.warnings.length > 0 && (
-                          <div className="text-xs text-yellow-200 space-y-1">
-                            {data.warnings.slice(0, 2).map((w, idx) => (
-                              <div key={idx}>{w}</div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-center">
-                  <div className="text-xs text-gray-300 mb-1">
-                    Minimum relay fee: 1 sat/vB
-                  </div>
-                  <div className="text-xs text-green-300 flex items-center justify-center space-x-1">
-                    <span className="w-2 h-2 bg-green-400 rounded-full animate-ping"></span>
-                    <span>Real-time mempool analysis</span>
-                  </div>
-                </div>
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-[#0f172a] border border-[#1f2937] rounded-2xl p-5 shadow-xl shadow-black/30">
+            <div className="text-xs uppercase tracking-wide text-gray-400">
+              Target {target} estimate
+            </div>
+            <div className="text-4xl font-bold text-[#cc7400] mt-2">
+              {feeDisplay}
+            </div>
+            <div className="text-sm text-gray-400">sat/vB</div>
+            {estimate?.warnings && estimate.warnings.length > 0 && (
+              <div className="mt-3 text-xs text-yellow-200 space-y-1">
+                {estimate.warnings.slice(0, 2).map((w, idx) => (
+                  <div key={idx}>{w}</div>
+                ))}
               </div>
+            )}
+          </div>
+
+          <div className="bg-[#0f172a] border border-[#1f2937] rounded-2xl p-5 shadow-xl shadow-black/30">
+            <div className="text-xs uppercase tracking-wide text-gray-400">
+              Latest block
+            </div>
+            <div className="text-3xl font-bold text-white mt-2">
+              {blockHeight ? blockHeight.toLocaleString() : "—"}
+            </div>
+            <div className="text-sm text-gray-400">Chain tip</div>
+          </div>
+
+          <div className="bg-[#0f172a] border border-[#1f2937] rounded-2xl p-5 shadow-xl shadow-black/30">
+            <div className="text-xs uppercase tracking-wide text-gray-400">
+              Mempool depth
+            </div>
+            <div className="text-3xl font-bold text-white mt-2">
+              {mempoolInfo?.size != null
+                ? mempoolInfo.size.toLocaleString()
+                : "—"}
+            </div>
+            <div className="text-sm text-gray-400">transactions in mempool</div>
+            {mempoolInfo?.total_fee != null && (
+              <div className="text-xs text-gray-400 mt-2">
+                Total fees: {mempoolInfo.total_fee.toFixed(4)} BTC
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="bg-[#0b1324] backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-[#1f2a3a] shadow-black/30">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Confirmation target
+              </label>
+              <select
+                value={target}
+                onChange={(e) => setTarget(Number(e.target.value))}
+                className="w-full px-4 py-2 border border-[#1f2a3a] rounded-lg bg-[#10182b] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+              >
+                <option value={1}>1 block</option>
+                <option value={2}>2 blocks</option>
+                <option value={3}>3 blocks</option>
+                <option value={6}>6 blocks</option>
+                <option value={12}>12 blocks</option>
+              </select>
             </div>
 
-            {/* Components */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4">
-                <div className="text-sm text-gray-400 mb-1">Chain</div>
-                <div className="text-xl font-bold text-white">
-                  {data?.chain || "—"}
-                </div>
-              </div>
-              <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4">
-                <div className="text-sm text-gray-400 mb-1">
-                  Mempool estimator (p50)
-                </div>
-                <div className="text-xl font-bold text-orange-400">
-                  {data?.mempoolComponent != null
-                    ? data.mempoolComponent.toFixed(1)
-                    : "n/a"}{" "}
-                  sat/vB
-                </div>
-              </div>
-              <div className="bg-gray-900/70 border border-gray-800 rounded-xl p-4">
-                <div className="text-sm text-gray-400 mb-1">
-                  Historical estimator
-                </div>
-                <div className="text-xl font-bold text-amber-300">
-                  {data?.historicalComponent != null
-                    ? data.historicalComponent.toFixed(1)
-                    : "n/a"}{" "}
-                  sat/vB
-                </div>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Start height
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={healthStart ?? ""}
+                onChange={(e) =>
+                  setHealthStart(Math.max(1, Number(e.target.value)))
+                }
+                className="w-full px-4 py-2 border border-[#1f2a3a] rounded-lg bg-[#10182b] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+              />
             </div>
 
-            {/* Additional Stats Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-gray-700 hover:border-gray-600 transition-all duration-300 hover:scale-105">
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative z-10">
-                  <div className="text-base text-gray-300 mb-2">
-                    Mempool Size
-                  </div>
-                  <div className="text-3xl font-bold text-white mb-1 transition-all duration-500 ease-out">
-                    {data?.mempoolSize.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-gray-400">transactions</div>
-                </div>
-              </div>
-
-              <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-gray-700 hover:border-gray-600 transition-all duration-300 hover:scale-105">
-                <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative z-10">
-                  <div className="text-base text-gray-300 mb-2">Total Fees</div>
-                  <div className="text-3xl font-bold text-white mb-1 transition-all duration-500 ease-out">
-                    {data?.totalFees.toFixed(4)} BTC
-                  </div>
-                  <div className="text-xs text-gray-400">in mempool</div>
-                </div>
-              </div>
-
-              <div className="group relative bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-gray-700 hover:border-gray-600 transition-all duration-300 hover:scale-105">
-                <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <div className="relative z-10">
-                  <div className="text-base text-gray-300 mb-2">
-                    Block Height
-                  </div>
-                  <div className="text-3xl font-bold text-white mb-1 transition-all duration-500 ease-out">
-                    {data?.blockHeight.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-gray-400">latest block</div>
-                </div>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Interval (blocks)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={2000}
+                value={healthInterval}
+                onChange={(e) =>
+                  setHealthInterval(Math.max(1, Number(e.target.value)))
+                }
+                className="w-full px-4 py-2 border border-[#1f2a3a] rounded-lg bg-[#10182b] text-white focus:ring-2 focus:ring-[#cc7400] focus:border-transparent"
+              />
             </div>
 
-            {/* D3.js Visualizations */}
-            <div className="space-y-8 mt-12">
-              <div className="text-center">
-                <h2 className="text-3xl font-bold text-white mb-2">
-                  Interactive Visualizations
-                </h2>
-                <p className="text-gray-400">
-                  Powered by D3.js for real-time data visualization
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <FeeRateTimeline />
-                <MempoolSizeChart />
-              </div>
-
-              <div className="grid grid-cols-1 gap-6">
-                <FeeDistributionChart />
-              </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => refreshAll(healthStart ?? undefined)}
+                disabled={loading}
+                className="w-full bg-[#cc7400] hover:brightness-110 disabled:bg-gray-600 text-black px-6 py-2 rounded-lg font-semibold transition-colors"
+              >
+                {loading ? "Loading..." : "Refresh data"}
+              </button>
             </div>
+          </div>
+
+          <div className="mt-4 text-sm text-gray-400 flex flex-wrap gap-4">
+            <span>
+              Latest block:{" "}
+              {blockHeight ? blockHeight.toLocaleString() : "loading…"}
+            </span>
+            <span>
+              Window: {healthInterval} blocks starting at{" "}
+              {startHeight ? startHeight.toLocaleString() : "—"}
+            </span>
+            <span>
+              Estimate spans heights{" "}
+              {mempoolHealth
+                ? `${(mempoolHealth.end_height + 1).toLocaleString()} – ${(
+                    mempoolHealth.end_height + target
+                  ).toLocaleString()}`
+                : "—"}
+            </span>
+            {lastUpdated && <span>Last update: {lastUpdated}</span>}
+            {startNotice && (
+              <span className="text-yellow-300">{startNotice}</span>
+            )}
+          </div>
+        </section>
+
+        {error && (
+          <div className="bg-red-900/20 border border-red-700 rounded-xl p-4 text-red-200">
+            {error}
           </div>
         )}
 
-        {/* Info Section */}
-        <div className="mt-16 bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-gray-700">
-          <h3 className="text-3xl font-bold text-white mb-6 text-center">
-            How Mempool-Based Fee Estimation Works
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="group relative bg-gray-800/50 rounded-xl p-6 border border-red-500/20 hover:border-red-400/40 transition-all duration-300">
-              <div className="flex items-center mb-4">
-                <div className="w-3 h-3 bg-red-500 rounded-full mr-3"></div>
-                <h4 className="text-xl font-semibold text-white">
-                  Current Method (Bitcoin Core)
-                </h4>
-              </div>
-              <p className="text-gray-300 leading-relaxed">
-                Uses{" "}
-                <span className="text-red-400 font-semibold">
-                  historical data
-                </span>{" "}
-                from past blocks to estimate fees. Can be slow to adapt to
-                changing conditions. Uses &quot;economical&quot; and
-                &quot;conservative&quot; modes.
-              </p>
+        <section>
+          {loading ? (
+            <div className="flex justify-center items-center h-64">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#cc7400]" />
             </div>
-            <div className="group relative bg-gray-800/50 rounded-xl p-6 border border-yellow-500/20 hover:border-yellow-400/40 transition-all duration-300">
-              <div className="flex items-center mb-4">
-                <div className="w-3 h-3 bg-yellow-500 rounded-full mr-3 animate-pulse"></div>
-                <h4 className="text-xl font-semibold text-yellow-400">
-                  Mempool-Based Method
-                </h4>
-              </div>
-              <p className="text-gray-300 leading-relaxed">
-                Analyzes{" "}
-                <span className="text-yellow-400 font-semibold">
-                  current mempool state
-                </span>{" "}
-                in real-time to provide more accurate fee estimates for
-                immediate use. Supports both &quot;economical&quot; and
-                &quot;conservative&quot; modes.
+          ) : mempoolHealth && chartBlocks.length > 0 ? (
+            <>
+              <BlockStatsChartD3
+                blocks={chartBlocks}
+                startHeight={startHeight}
+                endHeight={endHeight}
+                estimatePoints={estimatePoints}
+                estimateLabel={`Target ${target} estimate`}
+              />
+              <p className="text-sm text-gray-400 mt-4">
+                Shaded band shows the 25th-75th percentile feerates per block
+                height, plotted on a logarithmic scale. The dashed line is the
+                current mempool-based estimate repeated for the next {target}{" "}
+                block heights (e.g., a target of 2 at height h appears at h+1
+                and h+2).
               </p>
+            </>
+          ) : (
+            <div className="text-center text-gray-400">
+              No mempool percentile data available for this window.
             </div>
-          </div>
-        </div>
+          )}
+        </section>
 
-        {/* Live indicator */}
-        <div className="mt-8 flex items-center justify-center space-x-3 text-gray-300">
+        <div className="mt-4 flex items-center justify-center space-x-3 text-gray-300">
           <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
           <span className="font-medium">
-            Live data • Last updated: {data?.lastUpdate}
+            Live data • Last updated: {lastUpdated ?? "—"}
           </span>
         </div>
       </main>

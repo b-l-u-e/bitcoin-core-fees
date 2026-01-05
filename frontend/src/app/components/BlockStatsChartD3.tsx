@@ -5,22 +5,29 @@ import * as d3 from "d3";
 
 interface BlockData {
   height: number;
-  p25: number;
-  p75: number;
-  avgFee: number;
-  status?: "overpaid" | "underpaid" | "within_range";
+  p25: number | null;
+  p75: number | null;
+}
+
+interface EstimatePoint {
+  height: number;
+  value: number;
 }
 
 interface BlockStatsChartProps {
   blocks: BlockData[];
   startHeight: number;
   endHeight: number;
+  estimatePoints: EstimatePoint[];
+  estimateLabel?: string;
 }
 
 export default function BlockStatsChartD3({
   blocks,
   startHeight,
   endHeight,
+  estimatePoints,
+  estimateLabel = "Fee estimate",
 }: BlockStatsChartProps) {
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -38,41 +45,65 @@ export default function BlockStatsChartD3({
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
+    const maxDataHeight = d3.max(blocks, (d) => d.height) ?? endHeight;
+    const maxEstimateHeight =
+      d3.max(estimatePoints, (d) => d.height) ?? endHeight;
+    const xDomainEnd = Math.max(endHeight, maxDataHeight, maxEstimateHeight);
+
+    // Collect positive values for log scale domain
+    const percentileValues = blocks.flatMap((d) =>
+      [d.p25, d.p75].filter((v): v is number => v != null && v > 0)
+    );
+    const estimateValues = estimatePoints
+      .map((d) => d.value)
+      .filter((v) => v != null && v > 0);
+    const combinedValues = [...percentileValues, ...estimateValues];
+
+    // For log scale, compute proper min/max with padding
+    const rawMin =
+      combinedValues.length > 0 ? (d3.min(combinedValues) as number) : 1;
+    const rawMax =
+      combinedValues.length > 0 ? (d3.max(combinedValues) as number) : 10;
+
+    // Ensure minimum is at least 0.1 sat/vB for log scale; pad by factor for headroom
+    const minPositive = Math.max(0.1, rawMin * 0.8);
+    const maxPositive = Math.max(rawMax * 1.2, minPositive * 2);
+
+    const safeValue = (value: number | null | undefined) =>
+      value && value > 0 ? value : minPositive;
+
     // Scales
     const xScale = d3
       .scaleLinear()
-      .domain([startHeight, endHeight])
+      .domain([startHeight, xDomainEnd])
       .range([0, width]);
 
-    const yScaleLeft = d3
-      .scaleLinear()
-      .domain([0, d3.max(blocks, (d) => Math.max(d.p25, d.p75)) || 100] as [
-        number,
-        number
-      ])
-      .nice()
-      .range([height, 0]);
-
-    const yScaleRight = d3
-      .scaleLinear()
-      .domain([0, d3.max(blocks, (d) => d.avgFee) || 100] as [number, number])
-      .nice()
-      .range([height, 0]);
+    const yScale = d3
+      .scaleLog()
+      .domain([minPositive, maxPositive])
+      .range([height, 0])
+      .nice();
 
     // Area generator for p25-p75 range
     const area = d3
       .area<BlockData>()
       .x((d) => xScale(d.height))
-      .y0((d) => yScaleLeft(d.p25))
-      .y1((d) => yScaleLeft(d.p75))
+      .y0((d) => yScale(safeValue(d.p25)))
+      .y1((d) => yScale(safeValue(d.p75)))
       .curve(d3.curveMonotoneX);
 
-    // Line generator for average fee
-    const feeLine = d3
-      .line<BlockData>()
+    const rangeLine = (accessor: (d: BlockData) => number | null) =>
+      d3
+        .line<BlockData>()
+        .x((d) => xScale(d.height))
+        .y((d) => yScale(safeValue(accessor(d))))
+        .curve(d3.curveMonotoneX);
+
+    const estimateLine = d3
+      .line<EstimatePoint>()
       .x((d) => xScale(d.height))
-      .y((d) => yScaleRight(d.avgFee))
-      .curve(d3.curveMonotoneX);
+      .y((d) => yScale(safeValue(d.value)))
+      .curve(d3.curveStepAfter);
 
     // Add gradient for area
     const gradient = svg
@@ -110,14 +141,7 @@ export default function BlockStatsChartD3({
       .attr("stroke-width", 1)
       .attr("stroke-dasharray", "3,3")
       .attr("opacity", 0.6)
-      .attr(
-        "d",
-        d3
-          .line<BlockData>()
-          .x((d) => xScale(d.height))
-          .y((d) => yScaleLeft(d.p25))
-          .curve(d3.curveMonotoneX)(blocks)
-      );
+      .attr("d", rangeLine((d) => d.p25)(blocks));
 
     // Add p75 line
     g.append("path")
@@ -127,78 +151,18 @@ export default function BlockStatsChartD3({
       .attr("stroke-width", 1)
       .attr("stroke-dasharray", "3,3")
       .attr("opacity", 0.6)
-      .attr(
-        "d",
-        d3
-          .line<BlockData>()
-          .x((d) => xScale(d.height))
-          .y((d) => yScaleLeft(d.p75))
-          .curve(d3.curveMonotoneX)(blocks)
-      );
+      .attr("d", rangeLine((d) => d.p75)(blocks));
 
-    // Add average fee line
-    g.append("path")
-      .datum(blocks)
-      .attr("fill", "none")
-      .attr("stroke", "#10b981")
-      .attr("stroke-width", 3)
-      .attr("d", feeLine);
-
-    // Add interactive dots for average fee
-    g.selectAll(".fee-dot")
-      .data(blocks)
-      .enter()
-      .append("circle")
-      .attr("class", "fee-dot")
-      .attr("cx", (d) => xScale(d.height))
-      .attr("cy", (d) => yScaleRight(d.avgFee))
-      .attr("r", 4)
-      .attr("fill", "#10b981")
-      .attr("stroke", "#fff")
-      .attr("stroke-width", 2)
-      .on("mouseover", function (event, d) {
-        d3.select(this).attr("r", 6);
-
-        const tooltip = d3
-          .select("body")
-          .append("div")
-          .attr("class", "tooltip")
-          .style("opacity", 0)
-          .style("position", "absolute")
-          .style("background", "rgba(0, 0, 0, 0.9)")
-          .style("color", "white")
-          .style("padding", "10px 14px")
-          .style("border-radius", "6px")
-          .style("pointer-events", "none")
-          .style("font-size", "12px")
-          .style("z-index", "1000")
-          .style("box-shadow", "0 4px 6px rgba(0,0,0,0.3)");
-
-        const statusColor =
-          d.status === "overpaid"
-            ? "#ef4444"
-            : d.status === "underpaid"
-            ? "#f59e0b"
-            : "#10b981";
-
-        tooltip
-          .html(
-            `<div style="margin-bottom: 4px;"><strong>Block ${d.height.toLocaleString()}</strong></div>` +
-              `<div style="color: ${statusColor};">Status: ${
-                d.status || "unknown"
-              }</div>` +
-              `<div>Avg Fee: ${d.avgFee.toFixed(2)} sat/vB</div>` +
-              `<div>Range: ${d.p25.toFixed(2)} - ${d.p75.toFixed(2)}</div>`
-          )
-          .style("left", `${event.pageX + 10}px`)
-          .style("top", `${event.pageY - 10}px`);
-
-        tooltip.transition().duration(200).style("opacity", 1);
-      })
-      .on("mouseout", function () {
-        d3.selectAll(".tooltip").remove();
-        d3.select(this).attr("r", 4);
-      });
+    // Add fee estimate line
+    if (estimatePoints.length > 0) {
+      g.append("path")
+        .datum(estimatePoints)
+        .attr("fill", "none")
+        .attr("stroke", "#38bdf8")
+        .attr("stroke-width", 2.5)
+        .attr("stroke-dasharray", "4,2")
+        .attr("d", estimateLine);
+    }
 
     // X Axis
     g.append("g")
@@ -214,21 +178,27 @@ export default function BlockStatsChartD3({
       .style("fill", "#94a3b8")
       .style("font-size", "12px");
 
-    // Left Y Axis (Range)
+    // Left Y Axis (log fee range) - use powers of 10 for clean log scale display
+    const powersOf10 = [
+      0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000,
+    ];
+    const [yMin, yMax] = yScale.domain();
+    const logTicks = powersOf10.filter((t) => t >= yMin && t <= yMax);
     g.append("g")
-      .call(d3.axisLeft(yScaleLeft).ticks(6))
+      .call(
+        d3
+          .axisLeft(yScale)
+          .tickValues(logTicks.length > 0 ? logTicks : yScale.ticks(5))
+          .tickFormat((d) => {
+            const val = d as number;
+            if (val >= 1000) return `${(val / 1000).toFixed(0)}k`;
+            if (val >= 1) return val.toFixed(0);
+            return val.toString();
+          })
+      )
       .attr("color", "#cc7400")
       .selectAll("text")
       .style("fill", "#cc7400")
-      .style("font-size", "12px");
-
-    // Right Y Axis (Fee Rate)
-    g.append("g")
-      .attr("transform", `translate(${width},0)`)
-      .call(d3.axisRight(yScaleRight).ticks(6))
-      .attr("color", "#10b981")
-      .selectAll("text")
-      .style("fill", "#10b981")
       .style("font-size", "12px");
 
     // Axis labels
@@ -241,15 +211,7 @@ export default function BlockStatsChartD3({
       .style("fill", "#cc7400")
       .style("font-size", "14px")
       .style("font-weight", "bold")
-      .text("Block Stat Range (p25-p75)");
-
-    g.append("text")
-      .attr("transform", `translate(${width + 20}, ${height / 2}) rotate(90)`)
-      .style("text-anchor", "middle")
-      .style("fill", "#10b981")
-      .style("font-size", "14px")
-      .style("font-weight", "bold")
-      .text("Average Fee Rate (sat/vB)");
+      .text("sat/vB");
 
     g.append("text")
       .attr(
@@ -265,7 +227,7 @@ export default function BlockStatsChartD3({
     // Legend
     const legend = g
       .append("g")
-      .attr("transform", `translate(${width - 200}, 20)`);
+      .attr("transform", `translate(${width - 240}, 20)`);
 
     legend
       .append("rect")
@@ -281,7 +243,7 @@ export default function BlockStatsChartD3({
       .attr("y", 9)
       .style("fill", "#e2e8f0")
       .style("font-size", "12px")
-      .text("Range (p25-p75)");
+      .text("Range (25th-75th pct)");
 
     legend
       .append("line")
@@ -289,8 +251,9 @@ export default function BlockStatsChartD3({
       .attr("x2", 12)
       .attr("y1", 20)
       .attr("y2", 20)
-      .attr("stroke", "#10b981")
-      .attr("stroke-width", 3);
+      .attr("stroke", "#38bdf8")
+      .attr("stroke-width", 2.5)
+      .attr("stroke-dasharray", "4,2");
 
     legend
       .append("text")
@@ -298,17 +261,17 @@ export default function BlockStatsChartD3({
       .attr("y", 23)
       .style("fill", "#e2e8f0")
       .style("font-size", "12px")
-      .text("Avg Fee Rate");
-  }, [blocks, startHeight, endHeight]);
+      .text(estimateLabel);
+  }, [blocks, startHeight, endHeight, estimateLabel, estimatePoints]);
 
   return (
-    <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/80 backdrop-blur-sm rounded-2xl border border-slate-700 p-6">
+    <div className="bg-[#0b1324] backdrop-blur-sm rounded-2xl border border-[#1f2a3a] p-6 shadow-xl shadow-black/30">
       <h2 className="text-slate-200 text-lg mb-2">
-        Block Statistics & Fee Rates (D3.js)
+        Mempool Fee Percentiles (log scale)
       </h2>
 
       <p className="text-slate-400 mb-6">
-        Interval: {startHeight.toLocaleString()} - {endHeight.toLocaleString()}
+        Heights {startHeight.toLocaleString()} – {endHeight.toLocaleString()}
       </p>
 
       <div className="overflow-x-auto">
