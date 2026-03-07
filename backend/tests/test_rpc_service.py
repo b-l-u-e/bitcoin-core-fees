@@ -83,9 +83,24 @@ class TestRpcService(unittest.TestCase):
         self.assertNotIn('feerate_sat_per_vb', result)
 
     def test_clamps_target_in_rpc_call(self):
-        with patch.object(self.rpc, '_rpc_call', return_value={"feerate": 0.0001}) as mock:
+        def mock_rpc(method, params):
+            if method == "estimatesmartfee":
+                return {"feerate": 0.0001}
+            if method == "getblockcount":
+                return 800000
+            if method == "getmempoolfeeratediagram":
+                return [{"fee": 0.001, "weight": 100000}]
+            if method == "getblockstats":
+                return {"height": params[0], "total_weight": 1000000}
+            return None
+
+        with patch.object(self.rpc, '_rpc_call', side_effect=mock_rpc) as mock:
             self.rpc.estimate_smart_fee(1, "unset", 2)
-            self.assertEqual(mock.call_args[0][1][0], 2)  # params[0] should be 2
+            # Find the estimatesmartfee call — health stats trigger extra RPC calls
+            estimatesmartfee_calls = [c for c in mock.call_args_list if c[0][0] == "estimatesmartfee"]
+            self.assertGreater(len(estimatesmartfee_calls), 0)
+            params = estimatesmartfee_calls[0][0][1]
+            self.assertEqual(params[0], 2)  # params[0] should be clamped to 2
 
     # --- get_single_block_stats cache safety --------------------------------
 
