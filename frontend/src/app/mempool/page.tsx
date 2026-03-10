@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { api, MempoolDiagramResponse } from "../../services/api";
 import { Header } from "../../components/common/Header";
+import { NetworkBadge } from "../../components/common/NetworkBadge";
 import MempoolDiagramChart from "../../components/mempool/MempoolDiagramChart";
 import { Activity, Database, AlertCircle, RefreshCw, Layers, TrendingUp, Scale, Database as DbIcon } from "lucide-react";
 
@@ -61,6 +62,7 @@ export default function MempoolPage() {
           </div>
           
           <div className="flex items-center gap-4">
+            <NetworkBadge />
             <div className="flex items-center gap-1 bg-[var(--card)] p-1 rounded-xl border border-[var(--card-border)] shadow-sm">
               {[1, 2, 3, "all"].map((b) => (
                 <button

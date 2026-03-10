@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BarChart3, TrendingUp, AlertCircle, CheckCircle2, Search, Activity, Database, ArrowRight, RefreshCw, Scale } from "lucide-react";
 import { useStats } from "../../hooks/useStats";
 import { Header } from "../../components/common/Header";
+import { NetworkBadge } from "../../components/common/NetworkBadge";
 import FeeHistoryChart from "../../components/stats/FeeHistoryChart";
 
 export default function StatsPage() {
@@ -58,6 +59,7 @@ export default function StatsPage() {
           </div>
           
           <div className="flex flex-wrap items-center gap-4">
+            <NetworkBadge />
             <button
               onClick={() => setScaleType(prev => prev === "log" ? "linear" : "log")}
               className="px-4 py-2 rounded-xl bg-[var(--card)] border border-[var(--card-border)] text-[10px] font-black hover:border-orange-500/50 transition-all shadow-sm tracking-widest"

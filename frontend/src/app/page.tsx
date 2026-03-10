@@ -5,6 +5,7 @@ import { api } from "../services/api";
 import { AlertCircle, BarChart2, Activity, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { FeeEstimateResponse, MempoolHealthStats } from "../types/api";
 import { Header } from "../components/common/Header";
+import { NetworkBadge } from "../components/common/NetworkBadge";
 
 type FeeMode = "economical" | "conservative";
 
@@ -60,10 +61,7 @@ export default function LandingPage() {
         
         <div className="max-w-7xl mx-auto px-4 relative z-10 text-center">
           <div className="flex flex-col items-center mb-12">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--card)] border border-[var(--card-border)] text-[var(--muted)] text-[10px] font-mono mb-6 uppercase tracking-widest shadow-sm">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-              NETWORK: MAINNET
-            </div>
+            <NetworkBadge className="mb-6" />
             
             <div className="flex items-center gap-2 bg-[var(--card)] p-1 rounded-xl border border-[var(--card-border)] shadow-sm">
               {[2, 7, 144].map((t) => (
