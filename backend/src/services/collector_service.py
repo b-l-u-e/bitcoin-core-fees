@@ -22,7 +22,8 @@ def run_collector():
                     res = rpc_service.estimate_smart_fee(t, "unset", 1)
                     if "feerate_sat_per_vb" in res:
                         rate = res["feerate_sat_per_vb"]
-                        db_service.save_estimate(current_height, t, rate)
+                        chain = rpc_service.get_current_chain()
+                        db_service.save_estimate(current_height, t, rate, network=chain)
                         # Log as collected for the target
                         logger.info(f"[Collector] SAVED: target={t} height={current_height} rate={rate:.2f} sat/vB")
                 except Exception as e:

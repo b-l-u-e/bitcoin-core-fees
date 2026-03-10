@@ -22,15 +22,22 @@ def init_db():
                     target INTEGER,
                     estimate_feerate REAL,
                     expected_height INTEGER,
+                    network TEXT DEFAULT 'main',
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP  -- UTC
                 )
             ''')
+            # Migration: add network column if missing (existing DBs)
+            try:
+                cursor.execute("ALTER TABLE fee_estimates ADD COLUMN network TEXT DEFAULT 'main'")
+            except sqlite3.OperationalError:
+                pass  # column already exists
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_poll_height ON fee_estimates(poll_height)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_target ON fee_estimates(target)')
-            # Composite index for the most common query pattern (poll_height + target together)
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_network ON fee_estimates(network)')
+            # Composite index for the most common query pattern (poll_height + target + network)
             cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_poll_height_target
-                ON fee_estimates(poll_height, target)
+                CREATE INDEX IF NOT EXISTS idx_poll_height_target_network
+                ON fee_estimates(poll_height, target, network)
             ''')
             conn.commit()
         logger.info(f"Database initialised at {DB_PATH}")
@@ -39,23 +46,23 @@ def init_db():
         raise
 
 
-def save_estimate(poll_height, target, feerate):
+def save_estimate(poll_height, target, feerate, network="main"):
     expected_height = poll_height + target
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO fee_estimates (poll_height, target, estimate_feerate, expected_height)
-                VALUES (?, ?, ?, ?)
-            ''', (poll_height, target, feerate, expected_height))
+                INSERT INTO fee_estimates (poll_height, target, estimate_feerate, expected_height, network)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (poll_height, target, feerate, expected_height, network))
             conn.commit()
-        logger.debug(f"Saved estimate: poll_height={poll_height}, target={target}, feerate={feerate}")
+        logger.debug(f"Saved estimate: poll_height={poll_height}, target={target}, feerate={feerate}, network={network}")
     except sqlite3.Error as e:
         logger.error(f"Failed to save estimate (poll_height={poll_height}, target={target}): {e}", exc_info=True)
         raise
 
 
-def get_estimates_in_range(start_height, end_height, target=2):
+def get_estimates_in_range(start_height, end_height, target=2, network="main"):
     # Enforce a max block range to prevent runaway queries
     if end_height - start_height > MAX_RANGE_BLOCKS:
         logger.warning(
@@ -70,9 +77,9 @@ def get_estimates_in_range(start_height, end_height, target=2):
             cursor.execute('''
                 SELECT DISTINCT poll_height, target, estimate_feerate, expected_height
                 FROM fee_estimates
-                WHERE poll_height >= ? AND poll_height <= ? AND target = ?
+                WHERE poll_height >= ? AND poll_height <= ? AND target = ? AND (network = ? OR network IS NULL)
                 ORDER BY poll_height ASC, timestamp ASC
-            ''', (start_height, end_height, target))
+            ''', (start_height, end_height, target, network))
             rows = cursor.fetchall()
 
         if not rows:
@@ -84,13 +91,13 @@ def get_estimates_in_range(start_height, end_height, target=2):
         raise
 
 
-def get_db_height_range(target=2):
+def get_db_height_range(target=2, network="main"):
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT MIN(poll_height), MAX(poll_height) FROM fee_estimates WHERE target = ?',
-                (target,)
+                'SELECT MIN(poll_height), MAX(poll_height) FROM fee_estimates WHERE target = ? AND (network = ? OR network IS NULL)',
+                (target, network)
             )
             row = cursor.fetchone()
 

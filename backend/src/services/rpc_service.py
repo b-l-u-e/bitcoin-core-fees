@@ -22,7 +22,7 @@ def _find_config(filename: str = "rpc_config.ini") -> Optional[str]:
     for _ in range(5):
         candidate = os.path.join(directory, filename)
         if os.path.isfile(candidate):
-            return candidate
+            return os.path.abspath(candidate)
         directory = os.path.dirname(directory)
     return None
 
@@ -117,16 +117,92 @@ def get_single_block_stats(height: int) -> Dict[str, Any]:
 # Public RPC wrappers
 # ---------------------------------------------------------------------------
 
+# Chain name mapping: Bitcoin Core returns "main"|"test"|"signet"|"regtest"
+CHAIN_DISPLAY_NAMES = {"main": "MAINNET", "test": "TESTNET", "signet": "SIGNET", "regtest": "REGTEST"}
+
+# Cached chain for DB writes (fixed for process lifetime)
+_current_chain_cache: Optional[str] = None
+
+
+def get_current_chain() -> str:
+    """Return current network chain for DB isolation. Cached for process lifetime."""
+    global _current_chain_cache
+    if _current_chain_cache is None:
+        info = get_blockchain_info()
+        _current_chain_cache = info["chain"]
+    return _current_chain_cache
+
+
 def get_block_count() -> int:
     return _rpc_call("getblockcount", [])
 
+
+def get_blockchain_info() -> Dict[str, Any]:
+    """
+    Returns chain and block count from getblockchaininfo RPC.
+    Used for dynamic network detection (mainnet/testnet/signet/regtest).
+    """
+    result = _rpc_call("getblockchaininfo", [])
+    if not result:
+        return {"chain": "main", "blockcount": get_block_count()}
+    chain = result.get("chain", "main")
+    blocks = result.get("blocks", get_block_count())
+    display_chain = CHAIN_DISPLAY_NAMES.get(chain, chain.upper())
+    logger.debug(f"Network detected: {display_chain} (chain={chain})")
+    return {"chain": chain, "chain_display": display_chain, "blockcount": blocks}
+
+
+def get_mempool_health_statistics() -> List[Dict[str, Any]]:
+    """
+    Fetches stats for the last 5 blocks to compare their weights with
+    the current mempool's readiness.
+    """
+    current_height = get_block_count()
+    stats = []
+
+    # Using getmempoolfeeratediagram for accurate total weight
+    mempool_diagram = _rpc_call("getmempoolfeeratediagram", [])
+    total_mempool_weight = mempool_diagram[-1]["weight"] if mempool_diagram else 0
+
+    for h in range(current_height - 4, current_height + 1):
+        try:
+            b = get_single_block_stats(h)
+            weight = b.get("total_weight", 0)
+
+            stats.append({
+                "block_height": h,
+                "block_weight": weight,
+                "mempool_txs_weight": total_mempool_weight,
+                "ratio": min(1.0, total_mempool_weight / 4_000_000)
+            })
+        except Exception:
+            continue
+    return stats
+
+
 def estimate_smart_fee(conf_target: int, mode: str = "unset", verbosity_level: int = 2) -> Dict[str, Any]:
     effective_target = _clamp_target(conf_target)
-    result = _rpc_call("estimatesmartfee", [effective_target, mode, verbosity_level])
+    # Bitcoin Core estimatesmartfee: (conf_target, estimate_mode) — verbosity added in newer versions
+    result = _rpc_call("estimatesmartfee", [effective_target, mode])
     if result and "feerate" in result:
         # feerate is BTC/kVB → sat/vB: × 1e8 (BTC→sat) ÷ 1e3 (kVB→vB) = × 1e5
         result["feerate_sat_per_vb"] = result["feerate"] * 100_000
-    
+
+    # Include chain so frontend shows correct network (mainnet/testnet/signet/regtest)
+    if result is not None:
+        try:
+            info = get_blockchain_info()
+            result["chain"] = info["chain"]
+            result["chain_display"] = info["chain_display"]
+        except Exception as e:
+            logger.debug(f"Could not attach chain to fee response: {e}")
+
+    # Include health stats for the frontend
+    try:
+        result["mempool_health_statistics"] = get_mempool_health_statistics()
+    except Exception as e:
+        logger.error(f"Failed to include health stats: {e}")
+
     return result
 
 def get_mempool_feerate_diagram_analysis() -> Dict[str, Any]:
@@ -192,7 +268,8 @@ def get_performance_data(start_height: int, count: int = 100, target: int = 2) -
     import services.database_service as db_service  # late import — breaks circular dep
 
     effective_target = _clamp_target(target)
-    db_rows = db_service.get_estimates_in_range(start_height, start_height + count, effective_target)
+    chain = get_current_chain()
+    db_rows = db_service.get_estimates_in_range(start_height, start_height + count, effective_target, network=chain)
 
     # Deduplicate to latest estimate per height (dict preserves insertion order in Py3.7+)
     latest_estimates_map = {row["poll_height"]: row["estimate_feerate"] for row in db_rows}
@@ -216,8 +293,8 @@ def calculate_local_summary(target: int = 2) -> Dict[str, Any]:
 
     effective_target = _clamp_target(target)
     current_h = get_block_count()
-
-    db_rows = db_service.get_estimates_in_range(current_h - 1000, current_h, effective_target)
+    chain = get_current_chain()
+    db_rows = db_service.get_estimates_in_range(current_h - 1000, current_h, effective_target, network=chain)
 
     total = 0
     over = 0
