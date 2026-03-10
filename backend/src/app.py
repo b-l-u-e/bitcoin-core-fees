@@ -97,8 +97,12 @@ def create_app():
     @limiter.limit("100 per minute")   # cheap call, slightly more relaxed
     def block_count():
         try:
-            result = rpc_service.get_block_count()
-            return jsonify({"blockcount": result})
+            info = rpc_service.get_blockchain_info()
+            return jsonify({
+                "blockcount": info["blockcount"],
+                "chain": info["chain"],
+                "chain_display": info["chain_display"],
+            })
         except Exception as e:
             logger.error(f"/blockcount RPC failed: {e}", exc_info=True)
             return jsonify({"error": "Internal server error"}), 500

@@ -1,3 +1,12 @@
+# RPC connection — network is auto-detected from the connected node via getblockchaininfo.
+# Port mapping: mainnet 8332 | testnet 18332 | signet 38332 | regtest 18443
+# Example URLs: http://127.0.0.1:8332 | http://127.0.0.1:18332 | http://127.0.0.1:38332 | http://127.0.0.1:18443
+#
+# Cookie auth (recommended): use RPC_USER=__cookie__ and RPC_PASSWORD = contents of
+# the node's .cookie file. Use the cookie from the datadir for the chain you connect to:
+# mainnet ~/.bitcoin/.cookie | testnet ~/.bitcoin/testnet3/.cookie |
+# signet ~/.bitcoin/signet/.cookie | regtest ~/.bitcoin/regtest/.cookie
+
 [RPC_INFO]
 URL = 
 RPC_USER = 
