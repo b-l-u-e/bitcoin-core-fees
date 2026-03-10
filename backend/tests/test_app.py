@@ -10,13 +10,17 @@ class TestApp(unittest.TestCase):
 
     # --- /blockcount --------------------------------------------------------
 
-    @patch('services.rpc_service.get_block_count', return_value=800000)
+    @patch('services.rpc_service.get_blockchain_info', return_value={
+        "blockcount": 800000, "chain": "main", "chain_display": "MAINNET"
+    })
     def test_block_count_success(self, _):
         r = self.client.get('/blockcount')
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json['blockcount'], 800000)
+        self.assertEqual(r.json['chain'], 'main')
+        self.assertEqual(r.json['chain_display'], 'MAINNET')
 
-    @patch('services.rpc_service.get_block_count', side_effect=RuntimeError("node down"))
+    @patch('services.rpc_service.get_blockchain_info', side_effect=RuntimeError("node down"))
     def test_block_count_error_does_not_leak(self, _):
         r = self.client.get('/blockcount')
         self.assertEqual(r.status_code, 500)

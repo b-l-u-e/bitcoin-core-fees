@@ -38,7 +38,8 @@ class TestDatabaseService(unittest.TestCase):
         conn.close()
         self.assertIn('idx_poll_height', index_names)
         self.assertIn('idx_target', index_names)
-        self.assertIn('idx_poll_height_target', index_names)
+        self.assertIn('idx_network', index_names)
+        self.assertIn('idx_poll_height_target_network', index_names)
 
     def test_is_idempotent(self):
         try:
