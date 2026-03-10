@@ -12,6 +12,7 @@ This project tracks `estimatesmartfee` from a Bitcoin Core node and compares tho
 - **Historical Accuracy**: Visualizes the accuracy of estimates (within range, overpaid, or underpaid) compared to real block data.
 - **Mempool Diagram**: Real-time visualization of the mempool fee/weight accumulation curve.
 - **Block Statistics**: Direct insights into feerate percentiles for recent blocks.
+- **Multi-Network Support**: Works with mainnet, testnet, signet, and regtest. Network is auto-detected from the connected node; estimates are stored per network to avoid mixing data.
 
 #### Architecture
 
@@ -40,6 +41,7 @@ This project tracks `estimatesmartfee` from a Bitcoin Core node and compares tho
 
 #### 1. Configuration
 - **Backend**: Copy `backend/rpc_config.ini.example` to `backend/rpc_config.ini` and provide RPC credentials.
+- **Network**: Point the RPC URL to your node. The network (mainnet/testnet/signet/regtest) is auto-detected. Ports: mainnet 8332, testnet 18332, signet 38332, regtest 18443.
 
 #### 2. Manual Startup
 **Backend:**
